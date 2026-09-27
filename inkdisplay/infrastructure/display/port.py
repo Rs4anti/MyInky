@@ -1,0 +1,23 @@
+"""Hardware-independent display contract."""
+
+from typing import Protocol
+
+from PIL import Image
+
+
+class DisplayPort(Protocol):
+    @property
+    def supports_partial_refresh(self) -> bool: ...
+
+    @property
+    def supports_fast_refresh(self) -> bool: ...
+
+    def initialize(self) -> None: ...
+
+    def display(self, image: Image.Image) -> None: ...
+
+    def clear(self) -> None: ...
+
+    def sleep(self) -> None: ...
+
+    def close(self) -> None: ...

@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="it">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Carica foto | MyInky</title>
+    <style>
+      body { max-width: 640px; margin: 36px auto; padding: 0 20px; color: #171717; font: 16px/1.5 sans-serif; }
+      h1 { font-size: 28px; }
+      a { color: #175c46; }
+      .site-nav { display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 16px 0 24px; padding: 11px 0; border-block: 1px solid #aab1ad; }
+      label { display: block; margin: 18px 0 6px; font-weight: 600; }
+      input { box-sizing: border-box; width: 100%; padding: 10px; font: inherit; }
+      button { margin-top: 20px; padding: 10px 16px; border: 0; background: #175c46; color: white; font: inherit; cursor: pointer; }
+      .error { padding: 10px; border-left: 3px solid #a52323; background: #f8eeee; }
+    </style>
+  </head>
+  <body>
+    <h1>Carica foto</h1>
+    {% include "_navbar.html" %}
+    {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+    <form method="post" enctype="multipart/form-data">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label for="photos">Immagini JPG, PNG o WEBP (max {{ max_upload_mb }} MB ciascuna)</label>
+      <input id="photos" type="file" name="photos" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" multiple required>
+      <label for="caption">Didascalia facoltativa</label>
+      <input id="caption" name="caption" maxlength="240">
+      <button type="submit">Carica selezionate</button>
+    </form>
+  </body>
+</html>

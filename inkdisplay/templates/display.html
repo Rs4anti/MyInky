@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="it">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Display | MyInky</title>
+    <style>
+      body { max-width: 820px; margin: 32px auto; padding: 0 18px; color: #171717; font: 15px/1.45 sans-serif; }
+      h1 { font-size: 28px; }
+      .site-nav { display: flex; flex-wrap: wrap; gap: 8px 20px; margin: 16px 0 24px; padding: 11px 0; border-block: 1px solid #aab1ad; }
+      a { color: #155c45; }
+      dl { display: grid; grid-template-columns: minmax(190px, 1fr) 2fr; margin: 0; border-top: 1px solid #aaa; }
+      dt, dd { margin: 0; padding: 11px 8px; border-bottom: 1px solid #ddd; }
+      dt { font-weight: 600; }
+      dd { overflow-wrap: anywhere; }
+      .actions { display: flex; flex-wrap: wrap; gap: 10px; margin: 22px 0; }
+      button { padding: 10px 14px; border: 0; background: #155c45; color: white; font: inherit; cursor: pointer; }
+      button.danger { background: #8c2929; }
+      .error { border-left: 3px solid #8c2929; padding: 9px; background: #f8eeee; }
+      .success { border-left: 3px solid #155c45; padding: 9px; background: #edf5f1; }
+      @media(max-width:520px) { dl { grid-template-columns: 1fr; } dt { border-bottom: 0; padding-bottom: 0; } dd { padding-top: 3px; } }
+    </style>
+  </head>
+  <body>
+    <h1>Display Waveshare 4.2" V2</h1>
+    {% include "_navbar.html" %}
+    {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+    {% with messages = get_flashed_messages(with_categories=true) %}{% for category, message in messages %}<p class="{{ category }}">{{ message }}</p>{% endfor %}{% endwith %}
+    <dl>
+      <dt>Modalità</dt><dd>{{ status.display_label }}</dd>
+      <dt>Driver attivo</dt><dd>{{ status.driver_name }}</dd>
+      <dt>Refresh parziale</dt><dd>{{ 'Supportato' if status.supports_partial_refresh else 'Non supportato' }}</dd>
+      <dt>Refresh fast</dt><dd>{{ 'Supportato' if status.supports_fast_refresh else 'Non supportato' }}</dd>
+      <dt>Ultimo aggiornamento</dt><dd>{{ status.last_update_at or 'Non ancora aggiornato' }}</dd>
+      <dt>Hash precedente</dt><dd>{{ status.previous_hash or 'Nessuno' }}</dd>
+      <dt>Hash corrente</dt><dd>{{ status.last_hash or 'Nessuno' }}</dd>
+      <dt>Hash richiesto</dt><dd>{{ status.new_hash or 'Nessuno' }}</dd>
+      <dt>Esito</dt><dd>{{ status.last_result }}</dd>
+      <dt>Ultima modalità refresh</dt><dd>{{ status.last_refresh_mode }}</dd>
+      <dt>Ultimo errore</dt><dd>{{ status.last_error or 'Nessuno' }}</dd>
+    </dl>
+    <div class="actions">
+      <form method="post" action="{{ url_for('display.refresh') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button type="submit">Aggiorna ora</button></form>
+      <form method="post" action="{{ url_for('display.clear') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="danger" type="submit">Pulisci display</button></form>
+      <form method="post" action="{{ url_for('display.sleep') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button type="submit">Sleep</button></form>
+    </div>
+  </body>
+</html>

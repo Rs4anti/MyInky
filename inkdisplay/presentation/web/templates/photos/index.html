@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="it">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Libreria foto | MyInky</title>
+    <style>
+      body { max-width: 960px; margin: 32px auto; padding: 0 18px; color: #171717; font: 15px/1.45 sans-serif; }
+      h1 { font-size: 28px; margin-bottom: 8px; }
+      h2 { margin: 28px 0 12px; font-size: 19px; }
+      .site-nav { display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 12px 0 24px; padding: 11px 0; border-block: 1px solid #aaa; }
+      a { color: #175c46; }
+      .summary { display: flex; gap: 24px; padding: 10px 0; border-block: 1px solid #aaa; }
+      .summary strong { font-size: 20px; }
+      .error, .success { padding: 10px; border-left: 3px solid #a52323; background: #f8eeee; }
+      .success { border-color: #175c46; background: #edf5f1; }
+      .settings { display: grid; grid-template-columns: repeat(3, minmax(150px, 1fr)); gap: 12px 16px; }
+      .settings label { display: grid; gap: 4px; }
+      input, select { box-sizing: border-box; width: 100%; padding: 8px; font: inherit; }
+      input[type=checkbox] { width: auto; }
+      .check { display: flex !important; align-items: center; gap: 8px !important; }
+      button, .button { border: 0; padding: 8px 12px; color: white; background: #175c46; font: inherit; text-decoration: none; cursor: pointer; }
+      .danger { background: #8c2929; }
+      .photo-list { display: grid; gap: 10px; }
+      .photo { display: grid; grid-template-columns: 112px minmax(160px, 1fr) auto; gap: 14px; align-items: center; padding: 10px 0; border-bottom: 1px solid #bbb; }
+      .photo img { display: block; width: 112px; aspect-ratio: 4 / 3; object-fit: contain; background: white; border: 1px solid #aaa; }
+      .meta { color: #555; font-size: 13px; }
+      .actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: end; }
+      .actions form { margin: 0; }
+      @media (max-width: 680px) { .settings { grid-template-columns: repeat(2, minmax(130px, 1fr)); } .photo { grid-template-columns: 84px 1fr; } .photo img { width: 84px; } .actions { grid-column: 1 / -1; justify-content: start; } }
+      @media (max-width: 420px) { .settings { grid-template-columns: 1fr; } .summary { gap: 12px; flex-wrap: wrap; } }
+    </style>
+  </head>
+  <body>
+    <h1>Libreria foto</h1>
+    {% include "_navbar.html" %}
+    {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+    {% with messages = get_flashed_messages(with_categories=true) %}{% for category, message in messages %}<p class="{{ category }}">{{ message }}</p>{% endfor %}{% endwith %}
+
+    <section class="summary" aria-label="Stato foto">
+      <span><strong>{{ total_count }}</strong> foto</span>
+      <span><strong>{{ active_count }}</strong> attive</span>
+      <span>Ultima mostrata: <strong>{{ last_photo.caption or last_photo.original_name if last_photo else 'Nessuna' }}</strong></span>
+      <span>Sequenza: <strong>{{ 'casuale' if settings.sequence_mode == 'random' else 'sequenziale' }}</strong></span>
+    </section>
+
+    <p><a class="button" href="{{ url_for('photos.upload') }}">Carica foto</a></p>
+
+    <h2>Elaborazione e rotazione</h2>
+    <form method="post" action="{{ url_for('photos.index') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="settings">
+        <label class="check"><input type="checkbox" name="plugin_enabled" {% if settings.plugin_enabled %}checked{% endif %}> Includi foto nella rotazione</label>
+        <label>Sequenza<select name="sequence_mode"><option value="sequential" {% if settings.sequence_mode == 'sequential' %}selected{% endif %}>Sequenziale</option><option value="random" {% if settings.sequence_mode == 'random' %}selected{% endif %}>Casuale</option></select></label>
+        <label>Adattamento<select name="fit_mode"><option value="contain" {% if settings.fit_mode == 'contain' %}selected{% endif %}>Contain</option><option value="cover" {% if settings.fit_mode == 'cover' %}selected{% endif %}>Cover</option><option value="center_crop" {% if settings.fit_mode == 'center_crop' %}selected{% endif %}>Center crop</option></select></label>
+        <label>Dithering<select name="dithering"><option value="none" {% if settings.dithering == 'none' %}selected{% endif %}>Nessuno</option><option value="floyd_steinberg" {% if settings.dithering == 'floyd_steinberg' %}selected{% endif %}>Floyd-Steinberg</option><option value="atkinson" {% if settings.dithering == 'atkinson' %}selected{% endif %}>Atkinson</option></select></label>
+        <label>Contrasto <input type="number" name="contrast" min="0" max="3" step="0.1" value="{{ settings.contrast }}"></label>
+        <label>Nitidezza <input type="number" name="sharpness" min="0" max="3" step="0.1" value="{{ settings.sharpness }}"></label>
+        <label>Limite upload (MB) <input type="number" name="max_upload_mb" min="1" max="10" step="1" value="{{ settings.max_upload_mb }}"></label>
+      </div>
+      <p><button type="submit">Salva impostazioni foto</button></p>
+    </form>
+
+    <h2>Foto caricate</h2>
+    {% if photos %}
+      <div class="photo-list">
+        {% for photo, file_size in photos %}
+          <article class="photo">
+            <a href="{{ url_for('photos.thumbnail', photo_id=photo.id) }}"><img src="{{ url_for('photos.thumbnail', photo_id=photo.id) }}" width="112" height="84" alt="Anteprima: {{ photo.caption or photo.original_name }}"></a>
+            <div>
+              <strong>{{ photo.caption or photo.original_name }}</strong>
+              <div class="meta">{{ photo.original_name }} · {{ photo.width }}×{{ photo.height }} · {{ '%.1f'|format(file_size / 1048576) }} MB</div>
+              <div class="meta">Caricata {{ photo.created_at.strftime('%Y-%m-%d %H:%M UTC') }} · {{ 'Attiva' if photo.enabled else 'Disattivata' }}</div>
+            </div>
+            <div class="actions">
+              <form method="post" action="{{ url_for('photos.toggle', photo_id=photo.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="enabled" value="{{ 0 if photo.enabled else 1 }}"><button type="submit">{{ 'Disattiva' if photo.enabled else 'Attiva' }}</button></form>
+              <form method="post" action="{{ url_for('photos.move', photo_id=photo.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="direction" value="up"><button type="submit" aria-label="Sposta su">Su</button></form>
+              <form method="post" action="{{ url_for('photos.move', photo_id=photo.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="direction" value="down"><button type="submit" aria-label="Sposta giù">Giù</button></form>
+              <form method="post" action="{{ url_for('photos.delete', photo_id=photo.id) }}" onsubmit="return confirm('Eliminare questa foto?')"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="danger" type="submit">Elimina</button></form>
+            </div>
+          </article>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p>Nessuna foto caricata.</p>
+    {% endif %}
+  </body>
+</html>

@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="it">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Impostazioni meteo | MyInky</title>
+    <style>
+      body { max-width: 720px; margin: 36px auto; padding: 0 20px; color: #161616; font: 16px/1.45 sans-serif; }
+      h1 { font-size: 28px; }
+      .site-nav { display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 18px 0 28px; padding: 11px 0; border-block: 1px solid #aaa; }
+      a { color: #175c46; }
+      label { display: block; margin: 16px 0 5px; font-weight: 600; }
+      input, select { width: 100%; box-sizing: border-box; padding: 9px; font: inherit; }
+      input[type=checkbox] { width: auto; }
+      .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
+      button { margin-top: 20px; padding: 10px 16px; background: #175c46; border: 0; color: white; font: inherit; cursor: pointer; }
+      .error { padding: 10px; border-left: 3px solid #a52323; background: #f8eeee; }
+      .hint { color: #555; font-size: 14px; }
+      @media (max-width: 520px) { .grid { grid-template-columns: 1fr; } }
+    </style>
+  </head>
+  <body>
+    <h1>Configurazione meteo</h1>
+    {% include "_navbar.html" %}
+    {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+    <form method="post">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label for="provider">Provider</label>
+      <select id="provider" name="provider">
+        <option value="open-meteo" {% if values.provider == 'open-meteo' %}selected{% endif %}>Open-Meteo (senza API key)</option>
+        <option value="openweathermap" {% if values.provider == 'openweathermap' %}selected{% endif %}>OpenWeatherMap</option>
+      </select>
+      <div class="grid">
+        <div><label for="latitude">Latitudine</label><input id="latitude" type="number" name="latitude" step="any" min="-90" max="90" value="{{ values.latitude if values.latitude is not none else '' }}"></div>
+        <div><label for="longitude">Longitudine</label><input id="longitude" type="number" name="longitude" step="any" min="-180" max="180" value="{{ values.longitude if values.longitude is not none else '' }}"></div>
+      </div>
+      <label for="city">Oppure località</label>
+      <input id="city" name="city" maxlength="120" value="{{ values.city }}" placeholder="Roma">
+      <div class="grid">
+        <div><label for="timezone">Timezone IANA</label><input id="timezone" name="timezone" value="{{ values.timezone }}" required></div>
+        <div><label for="units">Unità</label><select id="units" name="units">
+          <option value="metric" {% if values.units == 'metric' %}selected{% endif %}>Metriche</option>
+          <option value="imperial" {% if values.units == 'imperial' %}selected{% endif %}>Imperiali</option>
+          <option value="standard" {% if values.units == 'standard' %}selected{% endif %}>Standard</option>
+        </select></div>
+      </div>
+      <label for="language">Lingua (codice, es. it)</label>
+      <input id="language" name="language" maxlength="10" value="{{ values.language }}" required>
+      <fieldset>
+        <legend>Dati nella schermata e-paper</legend>
+        <label><input type="checkbox" name="show_humidity" {% if values.show_humidity %}checked{% endif %}> Mostra umidità</label>
+        <label><input type="checkbox" name="show_wind" {% if values.show_wind %}checked{% endif %}> Mostra vento</label>
+        <label><input type="checkbox" name="show_pressure" {% if values.show_pressure %}checked{% endif %}> Mostra pressione</label>
+        <label><input type="checkbox" name="show_feels_like" {% if values.show_feels_like %}checked{% endif %}> Mostra temperatura percepita</label>
+        <label><input type="checkbox" name="show_forecast" {% if values.show_forecast %}checked{% endif %}> Mostra forecast a 3 giorni</label>
+      </fieldset>
+      <label for="api-key">API key OpenWeatherMap</label>
+      <input id="api-key" type="password" name="openweather_api_key" autocomplete="new-password" placeholder="{% if values.api_key_configured %}Chiave configurata; lascia vuoto per mantenerla{% else %}Opzionale{% endif %}">
+      {% if values.api_key_configured %}<label><input type="checkbox" name="clear_api_key" value="1"> Rimuovi la chiave salvata</label>{% endif %}
+      <p class="hint">La chiave viene cifrata localmente e non viene mai mostrata o inclusa nei dati esportati.</p>
+      <button type="submit">Salva configurazione meteo</button>
+    </form>
+  </body>
+</html>

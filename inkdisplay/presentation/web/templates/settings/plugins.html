@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="it">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Plugin display | MyInky</title>
+    <style>
+      body { max-width: 720px; margin: 36px auto; padding: 0 20px; color: #161616; font: 16px/1.45 sans-serif; }
+      h1 { font-size: 28px; }
+      .site-nav { display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 18px 0 28px; padding: 11px 0; border-block: 1px solid #aaa; }
+      a { color: #175c46; }
+      fieldset { border: 0; border-top: 1px solid #999; padding: 18px 0; display: grid; grid-template-columns: 1fr 180px; gap: 14px; }
+      legend { padding: 12px 0; font-size: 19px; font-weight: 700; }
+      label { align-self: center; }
+      input[type=number] { width: 100%; box-sizing: border-box; padding: 9px; }
+      .enable { grid-column: 1 / -1; display: flex; gap: 8px; align-items: center; }
+      button { padding: 10px 16px; background: #175c46; border: 0; color: white; font: inherit; cursor: pointer; }
+      .error { padding: 10px; border-left: 3px solid #a52323; background: #f8eeee; }
+      @media (max-width: 520px) { fieldset { grid-template-columns: 1fr; } }
+    </style>
+  </head>
+  <body>
+    <h1>Plugin e rotazione</h1>
+    {% include "_navbar.html" %}
+    {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+    <form method="post">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <fieldset>
+        <legend>ClockPlugin</legend>
+        <label class="enable"><input type="checkbox" name="clock_enabled" {% if values.clock_enabled %}checked{% endif %}> Attivo</label>
+        <label for="clock-refresh">Aggiorna contenuto ogni (minuti)</label>
+        <input id="clock-refresh" type="number" name="clock_refresh_interval" min="1" required value="{{ values.clock_refresh_interval }}">
+      </fieldset>
+      <fieldset>
+        <legend>WeatherPlugin</legend>
+        <label class="enable"><input type="checkbox" name="weather_enabled" {% if values.weather_enabled %}checked{% endif %}> Attivo</label>
+        <label for="weather-refresh">Aggiorna dati ogni (minuti)</label>
+        <input id="weather-refresh" type="number" name="weather_refresh_interval" min="1" required value="{{ values.weather_refresh_interval }}">
+      </fieldset>
+      <fieldset>
+        <legend>Display</legend>
+        <label for="rotation">Cambia plugin ogni (minuti)</label>
+        <input id="rotation" type="number" name="rotation_interval_minutes" min="1" required value="{{ values.rotation_interval_minutes }}">
+      </fieldset>
+      <button type="submit">Salva impostazioni</button>
+    </form>
+  </body>
+</html>

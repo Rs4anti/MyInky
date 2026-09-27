@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="it">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>MyInky | Dashboard</title>
+    <style>
+      :root { color-scheme: light; font: 15px/1.45 sans-serif; color: #171717; background: #f5f6f4; }
+      body { max-width: 1050px; margin: 28px auto; padding: 0 18px; }
+      h1 { font-size: 29px; margin: 0; }
+      h2 { margin: 0 0 12px; font-size: 18px; }
+      .site-nav { display: flex; flex-wrap: wrap; gap: 8px 20px; margin: 16px 0 24px; padding: 11px 0; border-block: 1px solid #aab1ad; }
+      a { color: #155c45; }
+      .headline { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
+      .mode { padding: 6px 10px; border: 1px solid #155c45; color: #155c45; font-weight: 700; }
+      .layout { display: grid; grid-template-columns: minmax(300px, 400px) 1fr; gap: 20px 28px; align-items: start; }
+      .preview { width: 100%; max-width: 400px; aspect-ratio: 4 / 3; display: block; background: white; border: 1px solid #949b97; }
+      .status-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; border: 1px solid #aab1ad; background: #aab1ad; }
+      .status-grid section { background: #fff; padding: 13px; min-height: 78px; }
+      .status-grid strong { display: block; margin-top: 5px; font-size: 17px; overflow-wrap: anywhere; }
+      .photo-card { grid-column: 1 / -1; border-top: 1px solid #aab1ad; padding-top: 18px; }
+      .photo-stats { display: flex; flex-wrap: wrap; gap: 12px 26px; margin: 10px 0; }
+      .badge { display: inline-block; padding: 2px 7px; border: 1px solid #87591c; color: #71460e; font-size: 12px; font-weight: 700; }
+      .quick-links { display: flex; flex-wrap: wrap; gap: 10px 18px; margin-top: 12px; }
+      .hint { color: #4c5550; }
+      @media (max-width: 720px) { .layout { grid-template-columns: 1fr; } .photo-card { grid-column: auto; } .status-grid { grid-template-columns: 1fr 1fr; } }
+    </style>
+  </head>
+  <body>
+    <div class="headline"><h1>MyInky</h1><span class="mode">{{ status.display_label }}</span></div>
+    {% include "_navbar.html" %}
+    {% if status.fallback_reason %}<p class="hint">{{ status.fallback_reason }}</p>{% endif %}
+    <main class="layout">
+      <section aria-label="Anteprima display">
+        <h2>Anteprima corrente</h2>
+        <img class="preview" src="{{ url_for('preview') }}" width="400" height="300" alt="Anteprima corrente e-paper">
+      </section>
+      <div class="status-grid">
+        <section>Stato applicazione<strong>{{ status.application_status|upper }}</strong></section>
+        <section>Driver attivo<strong>{{ status.driver_name }}</strong></section>
+        <section>Plugin corrente<strong>{{ status.current_plugin or 'Nessuno' }}</strong></section>
+        <section>Prossimo plugin<strong>{{ status.next_plugin or 'Nessuno' }}</strong></section>
+        <section>Scheduler<strong>{{ 'Attivo' if status.scheduler_running else 'Fermo' }}</strong></section>
+        <section>Meteo cache<strong>{{ 'Disponibile' if status.weather_available else 'Non disponibile' }}</strong></section>
+        <section>Ultimo update display<strong>{{ status.last_update_at or 'Non ancora aggiornato' }}</strong></section>
+        <section>Esito ultimo update<strong>{{ status.last_result }}</strong></section>
+      </div>
+      <section class="photo-card" aria-label="Stato PhotoPlugin">
+        <h2>PhotoPlugin {% if not status.photo_plugin_enabled %}<span class="badge">Plugin disattivato</span>{% endif %}</h2>
+        <div class="photo-stats">
+          <span>Foto archiviate: <strong>{{ status.photo_count }}</strong></span>
+          <span>Foto attive: <strong>{{ status.active_photo_count }}</strong></span>
+          <span>Modalità: <strong>{{ 'casuale' if status.photo_sequence_mode == 'random' else 'sequenziale' }}</strong></span>
+          <span>Ultima mostrata: <strong>{{ status.last_photo_shown or 'Nessuna' }}</strong></span>
+        </div>
+        <div class="quick-links">
+          <a href="/photos">Apri Libreria Foto</a>
+          <a href="/photos/upload">Carica Nuova Foto</a>
+          <a href="/display">Controlli display</a>
+        </div>
+      </section>
+      <section class="photo-card">
+        <h2>Navigazione</h2>
+        <div class="quick-links">
+          <a href="/">Dashboard</a>
+          <a href="/settings/plugins">Impostazioni plugin</a>
+          <a href="/settings/weather">Impostazioni meteo</a>
+          <a href="/photos">Libreria foto</a>
+          <a href="/photos/upload">Carica foto</a>
+          <a href="/display">Display</a>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>
