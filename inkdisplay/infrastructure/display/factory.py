@@ -69,9 +69,12 @@ def select_display(
             mode="waveshare",
             driver_name=driver.driver_name,
             lock_path=lock_path,
+            fallback_display=MockDisplay(preview_path),
         )
         managed.initialize()
-        return DisplaySelection(managed, "waveshare", driver.driver_name)
+        return DisplaySelection(
+            managed, managed.mode, managed.driver_name, managed.fallback_reason
+        )
     except (DisplayHardwareError, ImportError, OSError, RuntimeError) as error:
         reason = str(error)
         logger.warning("Waveshare non disponibile (%s); uso mock", reason)

@@ -6,6 +6,7 @@ import hashlib
 import logging
 import os
 import threading
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from tempfile import NamedTemporaryFile
@@ -33,13 +34,16 @@ class ManagedDisplay:
         driver_name: str,
         lock_path: Path,
         fallback_reason: str | None = None,
+        fallback_display: DisplayPort | None = None,
     ) -> None:
         self._delegate = delegate
+        self._fallback_display = fallback_display
         self.mode = mode
         self.driver_name = driver_name
         self.fallback_reason = fallback_reason
         self._thread_lock = threading.Lock()
         self._process_lock = FileLock(str(lock_path))
+        self._lock_path = lock_path
         self._hash_path = lock_path.with_name(f"display-{mode}.sha256")
         self.last_hash = self._load_hash()
         self.previous_hash: str | None = None
@@ -60,7 +64,7 @@ class ManagedDisplay:
 
     def initialize(self) -> None:
         with self._exclusive():
-            self._delegate.initialize()
+            self._run_with_fallback(lambda display: display.initialize())
 
     def display(self, image: Image.Image) -> None:
         with self._exclusive():
@@ -99,7 +103,7 @@ class ManagedDisplay:
                 )
                 return
             try:
-                self._delegate.display(frame)
+                self._run_with_fallback(lambda display: display.display(frame))
             except Exception as error:
                 self.last_result = "error"
                 self.last_error = str(error)
@@ -128,7 +132,7 @@ class ManagedDisplay:
 
     def clear(self) -> None:
         with self._exclusive():
-            self._delegate.clear()
+            self._run_with_fallback(lambda display: display.clear())
             self.previous_hash = self.last_hash
             self.new_hash = hashlib.sha256(
                 Image.new("1", (400, 300), color=255).tobytes()
@@ -143,11 +147,39 @@ class ManagedDisplay:
 
     def sleep(self) -> None:
         with self._exclusive():
-            self._delegate.sleep()
+            self._run_with_fallback(lambda display: display.sleep())
 
     def close(self) -> None:
         with self._exclusive():
-            self._delegate.close()
+            self._run_with_fallback(lambda display: display.close())
+
+    def _run_with_fallback(self, operation: Callable[[DisplayPort], None]) -> None:
+        try:
+            operation(self._delegate)
+        except Exception as error:
+            if self._fallback_display is None:
+                raise
+
+            failed_display = self._delegate
+            try:
+                failed_display.close()
+            except Exception:
+                logger.warning("Could not close failed display", exc_info=True)
+
+            self._delegate = self._fallback_display
+            self._fallback_display = None
+            self.mode = "mock"
+            self.driver_name = "MockDisplay"
+            self.fallback_reason = str(error)
+            if error.__cause__ is not None:
+                self.fallback_reason += f": {error.__cause__}"
+            self._hash_path = self._lock_path.with_name("display-mock.sha256")
+            self.last_hash = self._load_hash()
+            self._partial_refresh_count = 0
+            logger.warning(
+                "Display hardware failed; switching to MockDisplay: %s", error
+            )
+            operation(self._delegate)
 
     def _exclusive(self) -> _DisplayLock:
         return _DisplayLock(self._thread_lock, self._process_lock)
@@ -160,7 +192,9 @@ class ManagedDisplay:
         except OSError:
             logger.warning("Could not read persisted display hash", exc_info=True)
             return None
-        if len(value) == 64 and all(character in "0123456789abcdef" for character in value):
+        if len(value) == 64 and all(
+            character in "0123456789abcdef" for character in value
+        ):
             return value
         logger.warning("Ignoring invalid persisted display hash")
         return None

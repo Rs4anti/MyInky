@@ -102,7 +102,7 @@ def create_app(config_override: Mapping[str, Any] | None = None) -> Flask:
 
     @app.get("/health")
     def health() -> tuple[dict[str, str], int]:
-        return {"status": "ok", "display_mode": str(app.config["DISPLAY_MODE"])}, 200
+        return {"status": "ok", "display_mode": display.mode}, 200
 
     @app.get("/api/preview")
     def preview() -> Any:

@@ -156,6 +156,53 @@ def test_hardware_selection_falls_back_when_not_pi_or_driver_missing(
     assert "driver" in str(missing_module.fallback_reason)
 
 
+def test_hardware_selection_falls_back_when_driver_initialization_fails(
+    tmp_path: Path,
+) -> None:
+    driver = FakeDriver()
+
+    def fail_init() -> int:
+        raise OSError("SPI unavailable")
+
+    driver.init = fail_init
+    selection = select_display(
+        "waveshare",
+        tmp_path / "previews" / "current.png",
+        tmp_path / "display-init-failure.lock",
+        raspberry_detector=lambda: True,
+        driver_loader=lambda: driver,
+    )
+
+    assert selection.mode == "mock"
+    assert isinstance(selection.display._delegate, MockDisplay)
+    assert "Inizializzazione Waveshare fallita" in str(selection.fallback_reason)
+
+
+def test_hardware_selection_falls_back_after_runtime_display_error(
+    tmp_path: Path,
+) -> None:
+    driver = FakeDriver()
+
+    def fail_display(buffer: bytes) -> None:
+        raise OSError("SPI disconnected")
+
+    driver.display = fail_display
+    selection = select_display(
+        "waveshare",
+        tmp_path / "previews" / "current.png",
+        tmp_path / "display-runtime-failure.lock",
+        raspberry_detector=lambda: True,
+        driver_loader=lambda: driver,
+    )
+
+    selection.display.display(_frame())
+
+    assert selection.display.mode == "mock"
+    assert selection.display.driver_name == "MockDisplay"
+    assert "SPI disconnected" in str(selection.display.fallback_reason)
+    assert (tmp_path / "previews" / "current.png").exists()
+
+
 def test_hash_skips_unchanged_frame_and_records_both_hashes(tmp_path: Path) -> None:
     delegate = MockDisplay(tmp_path / "current.png")
     display = ManagedDisplay(
