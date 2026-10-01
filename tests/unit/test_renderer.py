@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 
-from PIL import Image, ImageFont
+from PIL import Image, ImageDraw, ImageFont
 
 import inkdisplay.presentation.rendering.renderer as renderer_module
 from inkdisplay.presentation.rendering.renderer import ClockRenderer
@@ -27,18 +27,64 @@ def test_clock_layout_has_large_centered_time_and_no_header_banner() -> None:
     image = ClockRenderer().render_clock(datetime(2026, 10, 1, 18, 8, tzinfo=UTC))
     ink = Image.eval(image.convert("L"), lambda value: 255 - value)
     time_ink = Image.eval(
-        image.crop((0, 36, 400, 190)).convert("L"), lambda value: 255 - value
+        image.crop((12, 10, 388, 198)).convert("L"), lambda value: 255 - value
     )
     time_bounds = time_ink.getbbox()
     frame_bounds = ink.getbbox()
 
     assert image.crop((0, 0, 400, 35)).getextrema() == (255, 255)
     assert time_bounds is not None
-    assert abs((time_bounds[0] + time_bounds[2]) / 2 - 200) <= 3
-    assert time_bounds[2] - time_bounds[0] >= 200
+    assert abs((time_bounds[0] + time_bounds[2]) / 2 - 188) <= 2
+    time_area_ratio = (
+        (time_bounds[2] - time_bounds[0]) * (time_bounds[3] - time_bounds[1])
+    ) / (376 * 188)
+    assert time_area_ratio >= 0.60
     assert frame_bounds is not None
-    assert frame_bounds[0] >= 12 and frame_bounds[2] <= 388
-    assert frame_bounds[1] >= 36 and frame_bounds[3] <= 288
+    assert frame_bounds[0] >= 10 and frame_bounds[2] <= 388
+    assert frame_bounds[1] >= 10 and frame_bounds[3] <= 288
+    date_bounds = Image.eval(
+        image.crop((12, 203, 388, 247)).convert("L"), lambda value: 255 - value
+    ).getbbox()
+    timezone_bounds = Image.eval(
+        image.crop((12, 264, 388, 288)).convert("L"), lambda value: 255 - value
+    ).getbbox()
+    assert date_bounds is not None and timezone_bounds is not None
+
+
+def test_clock_font_scales_to_bounds_and_selects_largest_fitting_size() -> None:
+    image = Image.new("1", (400, 300), color=255)
+    draw = ImageDraw.Draw(image)
+    text = "21:58"
+    font = ClockRenderer._fit_font(draw, text, (12, 10, 388, 198), 180, 8, True)
+    widest_hour_size = ClockRenderer._draw_time(
+        image, draw, text, (12, 10, 388, 198), 180, 8
+    )
+    short_hour_size = ClockRenderer._draw_time(
+        image, draw, text, (12, 10, 388, 100), 180, 8
+    )
+
+    assert font is not None and getattr(font, "size", 0) > 100
+    assert widest_hour_size == 180
+    assert short_hour_size is not None and short_hour_size < widest_hour_size
+
+
+def test_clock_fits_long_date_and_timezone_without_clipping() -> None:
+    image = ClockRenderer("America/Argentina/Buenos_Aires").render_clock(
+        datetime(2026, 9, 30, 18, 8, tzinfo=UTC)
+    )
+    ink = Image.eval(image.convert("L"), lambda value: 255 - value).getbbox()
+    date_ink = Image.eval(
+        image.crop((12, 203, 388, 247)).convert("L"), lambda value: 255 - value
+    ).getbbox()
+    timezone_ink = Image.eval(
+        image.crop((12, 264, 388, 288)).convert("L"), lambda value: 255 - value
+    ).getbbox()
+
+    assert image.size == (400, 300)
+    assert image.mode == "1"
+    assert ink is not None and ink[0] >= 10 and ink[1] >= 10
+    assert ink[2] <= 388 and ink[3] <= 288
+    assert date_ink is not None and timezone_ink is not None
 
 
 def test_clock_supports_12_hour_format_and_optional_timezone() -> None:

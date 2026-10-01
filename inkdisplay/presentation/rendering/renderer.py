@@ -69,7 +69,7 @@ class ClockRenderer:
         show_timezone: bool = True,
         weather_summary: str | None = None,
     ) -> Image.Image:
-        """Render a centered Italian clock as a 1-bit display image."""
+        """Render a dominant Italian clock as a 1-bit display image."""
         current = (now or datetime.now(self.timezone)).astimezone(self.timezone)
         image = Image.new("1", (WIDTH, HEIGHT), color=255)
         draw = ImageDraw.Draw(image)
@@ -87,20 +87,81 @@ class ClockRenderer:
             time_text = time_text.lstrip("0")
         if show_seconds:
             time_text += current.strftime(":%S")
+
+        self._draw_time(image, draw, time_text, (12, 10, 388, 198), 180, 8, bold=True)
         self._draw_centered_fitted(
-            draw, time_text, (14, 36, 386, 190), 140, 72, bold=True
-        )
-        self._draw_centered_fitted(
-            draw, date_text, (14, 197, 386, 242), 29, 18, bold=True
+            draw, date_text, (12, 203, 388, 247), 32, 10, bold=True
         )
         if weather_summary:
             self._draw_centered_fitted(
-                draw, weather_summary, (14, 243, 386, 265), 17, 12
+                draw, weather_summary, (12, 249, 388, 263), 16, 8
             )
         if show_timezone:
             timezone_text = f"{self.timezone.key} · {current.strftime('%Z')}"
-            self._draw_centered_fitted(draw, timezone_text, (14, 266, 386, 288), 17, 12)
+            self._draw_centered_fitted(draw, timezone_text, (12, 264, 388, 288), 16, 8)
         return image
+
+    @staticmethod
+    def _draw_time(
+        image: Image.Image,
+        draw: ImageDraw.ImageDraw,
+        text: str,
+        bounds: tuple[int, int, int, int],
+        maximum_size: int,
+        minimum_size: int,
+        bold: bool = True,
+    ) -> int | None:
+        left, top, right, bottom = bounds
+        font: ImageFont.FreeTypeFont | ImageFont.ImageFont | None = None
+        text_bounds = (0, 0, 0, 0)
+        for size in range(maximum_size, minimum_size - 1, -1):
+            candidate = _load_font(size, bold=bold)
+            measured_bounds = draw.textbbox((0, 0), text, font=candidate)
+            candidate_bounds = (
+                int(measured_bounds[0]),
+                int(measured_bounds[1]),
+                int(measured_bounds[2]),
+                int(measured_bounds[3]),
+            )
+            if candidate_bounds[3] - candidate_bounds[1] <= bottom - top:
+                font = candidate
+                text_bounds = candidate_bounds
+                break
+        if font is None:
+            return None
+
+        text_width = text_bounds[2] - text_bounds[0]
+        text_height = text_bounds[3] - text_bounds[1]
+        target_width = min(text_width, right - left)
+        mask = Image.new("L", (text_width, text_height), color=0)
+        mask_draw = ImageDraw.Draw(mask)
+        mask_draw.text((-text_bounds[0], -text_bounds[1]), text, font=font, fill=255)
+        if target_width != text_width:
+            mask = mask.resize((target_width, text_height), Image.Resampling.LANCZOS)
+        mask = mask.convert("1", dither=Image.Dither.NONE)
+        x = left + (right - left - target_width) // 2
+        y = top + (bottom - top - text_height) // 2
+        image.paste(0, (x, y), mask)
+        return getattr(font, "size", None)
+
+    @staticmethod
+    def _fit_font(
+        draw: ImageDraw.ImageDraw,
+        text: str,
+        bounds: tuple[int, int, int, int],
+        maximum_size: int,
+        minimum_size: int,
+        bold: bool = False,
+    ) -> ImageFont.FreeTypeFont | ImageFont.ImageFont | None:
+        left, top, right, bottom = bounds
+        for size in range(maximum_size, minimum_size - 1, -1):
+            font = _load_font(size, bold=bold)
+            text_bounds = draw.textbbox((0, 0), text, font=font)
+            text_width = text_bounds[2] - text_bounds[0]
+            text_height = text_bounds[3] - text_bounds[1]
+            if text_width <= right - left and text_height <= bottom - top:
+                return font
+        return None
 
     @staticmethod
     def _draw_centered_fitted(
@@ -112,18 +173,21 @@ class ClockRenderer:
         bold: bool = False,
     ) -> None:
         left, top, right, bottom = bounds
-        for size in range(maximum_size, minimum_size - 1, -1):
-            font = _load_font(size, bold=bold)
-            text_bounds = draw.textbbox((0, 0), text, font=font)
-            text_width = text_bounds[2] - text_bounds[0]
-            text_height = text_bounds[3] - text_bounds[1]
-            if text_width <= right - left and text_height <= bottom - top:
-                x = left + (right - left - text_width) // 2 - text_bounds[0]
-                y = top + (bottom - top - text_height) // 2 - text_bounds[1]
-                draw.text((x, y), text, font=font, fill=0)
-                return
-        font = _load_font(minimum_size, bold=bold)
-        text_bounds = draw.textbbox((0, 0), text, font=font)
-        x = left + (right - left - (text_bounds[2] - text_bounds[0])) // 2
-        y = top + (bottom - top - (text_bounds[3] - text_bounds[1])) // 2
-        draw.text((x - text_bounds[0], y - text_bounds[1]), text, font=font, fill=0)
+        fitted_text = text
+        font = ClockRenderer._fit_font(
+            draw, fitted_text, bounds, maximum_size, minimum_size, bold
+        )
+        while font is None and len(fitted_text) > 1:
+            fitted_text = fitted_text[:-2] + "…"
+            font = ClockRenderer._fit_font(
+                draw, fitted_text, bounds, maximum_size, minimum_size, bold
+            )
+        if font is None:
+            return
+
+        text_bounds = draw.textbbox((0, 0), fitted_text, font=font)
+        text_width = text_bounds[2] - text_bounds[0]
+        text_height = text_bounds[3] - text_bounds[1]
+        x = left + (right - left - text_width) // 2 - text_bounds[0]
+        y = top + (bottom - top - text_height) // 2 - text_bounds[1]
+        draw.text((x, y), fitted_text, font=font, fill=0)
