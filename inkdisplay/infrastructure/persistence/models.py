@@ -75,6 +75,14 @@ class DisplayState(Base):
     __tablename__ = "display_state"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    current_plugin: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    next_plugin: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    current_plugin_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    current_plugin_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     last_plugin_shown: Mapped[str | None] = mapped_column(String(32), nullable=True)
     last_shown_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
@@ -82,6 +90,24 @@ class DisplayState(Base):
     last_rotation_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    last_content_refresh_at: Mapped[dict[str, str]] = mapped_column(
+        JSON, nullable=False, default=dict
+    )
+    last_display_attempt_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    last_display_attempt_plugin: Mapped[str | None] = mapped_column(
+        String(32), nullable=True
+    )
+    last_display_success_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    last_displayed_plugin: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    last_displayed_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    last_display_result: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    last_display_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    display_mode: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    refresh_mode: Mapped[str | None] = mapped_column(String(16), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now
     )

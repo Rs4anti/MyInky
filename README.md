@@ -5,7 +5,7 @@ Applicazione locale per configurare contenuti e pianificazione di un display e-p
 ## Stato attuale
 
 - `GET /health`: stato dell'applicazione e modalità display.
-- `GET /api/preview`: genera una schermata orologio italiana 400 x 300, la salva in `data/previews/current.png` e la restituisce come PNG.
+- `GET /api/preview`: restituisce senza effetti collaterali l'ultimo frame applicato con successo; prima del primo aggiornamento mostra una preview del plugin pianificato. `current.png` viene aggiornato solo dopo un invio display riuscito.
 - `GET /`: pagina locale con l'anteprima.
 - `/settings/plugins`: attivazione plugin e intervalli distinti di aggiornamento contenuti e rotazione display.
 - `/settings/weather`: provider, località/coordinate, timezone, unità, lingua e API key opzionale.
@@ -17,7 +17,7 @@ Applicazione locale per configurare contenuti e pianificazione di un display e-p
 - L'immagine inviata al mock è PIL `1` (bianco e nero) e viene scritta atomicamente.
 - SQLite conserva `Settings`, `PluginSettings`, `DisplayState` e l'ultima cache meteo valida.
 - `ClockPlugin`, `WeatherPlugin` e `PhotoPlugin` con libreria immagini.
-- Refresh contenuti indipendente dalla rotazione: valori iniziali Clock 1 min, Weather 30 min, rotazione 10 min.
+- Refresh contenuti indipendente dalla rotazione: Clock aggiorna i dati ogni 1 min, Weather aggiorna la cache ogni 30 min; ogni plugin resta visibile per la rotazione configurata (10 min iniziali).
 - Scheduler eseguibile come processo separato, con lock file, job non concorrenti e reload della configurazione salvata.
 - Provider meteo senza chiamate HTTP durante il rendering; in assenza di rete usa la cache persistita.
 
@@ -51,7 +51,7 @@ make install
 make dev
 ```
 
-`make dev` avvia il server e lo scheduler nel processo di sviluppo. Per un deployment con web server separato avvia un solo processo scheduler con `make scheduler` (o `python run_scheduler.py`) accanto al web server. Il lock impedisce di avviare una seconda istanza scheduler. I job vengono sincronizzati con le impostazioni persistite entro 20 secondi.
+`make dev` avvia un server e un solo scheduler nel processo di sviluppo. `python run.py` fa lo stesso. In produzione, scegli un web server senza scheduler incorporato e avvia esattamente un processo `make scheduler` (o `python run_scheduler.py`). Non eseguire `run.py` insieme a `run_scheduler.py`: il lock di processo impedisce la seconda istanza. I job hanno ID stabili, vengono sostituiti senza duplicarsi e i reload invariati conservano la prossima scadenza.
 
 I target `lint`, `test` e `check` eseguono Ruff, Black, mypy e pytest. `make install`, `make lint`, `make test`, `make check`, `make dev` e `make scheduler` creano `.venv` se manca e installano i requisiti. Su Windows PowerShell si può preparare e avviare il venv manualmente:
 
@@ -118,7 +118,7 @@ Il test precedente inizializza, cancella e mette in sleep il pannello: eseguilo 
 
 Il codice adapter usa solo i metodi verificati nel driver ufficiale: `init`, `ReadBusy`, `getbuffer`, `display`, `Clear`, `sleep`, `init_fast`, `display_Fast` e `display_Partial`. Fast/partial risultano disponibili solo se il driver espone l'intero gruppo di metodi richiesto. Clock richiede partial tramite metadata immagine; il wrapper fa fallback full se non supportato e forza un full dopo cinque partial consecutivi per ridurre ghosting. Le schermate meteo/foto richiedono full.
 
-Troubleshooting: se `waveshare_epd` manca, verifica `PYTHONPATH` e il clone ufficiale; se GPIO non è disponibile, controlla `RPi.GPIO` e avvia come utente con accesso ai GPIO; se SPI manca, verifica `/dev/spidev*`, `raspi-config` e che il bus non sia occupato. Un errore di init/display viene tradotto in un messaggio applicativo e la modalità selezionata ricade su mock all'avvio. Se BUSY resta alto, verifica cablaggio BUSY/RST, alimentazione e SPI; il driver ufficiale attende BUSY internamente. Se il pannello resta bianco o mostra artefatti, controlla VCC/GND, ordine dei pin, versione V2 e usa prima il test ufficiale completo. Dopo sleep il driver viene reinizializzato alla prossima operazione.
+Troubleshooting: se `waveshare_epd` manca, verifica `PYTHONPATH` e il clone ufficiale; se GPIO non è disponibile, controlla `RPi.GPIO` e avvia come utente con accesso ai GPIO; se SPI manca, verifica `/dev/spidev*`, `raspi-config` e che il bus non sia occupato. Un errore all'avvio seleziona il mock; un errore hardware runtime viene registrato e commuta automaticamente al mock, senza dichiarare riuscito il plugin non applicato. Se BUSY resta alto, verifica cablaggio BUSY/RST, alimentazione e SPI; il driver ufficiale attende BUSY internamente. Se il pannello resta bianco o mostra artefatti, controlla VCC/GND, ordine dei pin, versione V2 e usa prima il test ufficiale completo. Dopo sleep il driver viene reinizializzato alla prossima operazione.
 
 Le impostazioni di contenuto vengono salvate nel database in `data/inkdisplay.sqlite3` e sopravvivono al riavvio. I modelli SQLAlchemy sono gestiti anche da Flask-Migrate; per inizializzare/aggiornare lo schema:
 
@@ -126,11 +126,13 @@ Le impostazioni di contenuto vengono salvate nel database in `data/inkdisplay.sq
 python -m flask --app run db upgrade
 ```
 
-La migration `0d4e3deebfc4` è additiva: crea la sola tabella `photos` e non riscrive le revisioni precedenti.
+Le migration sono additive. Prima di avviare una versione aggiornata su un database esistente, esegui `python -m flask --app run db upgrade`; le nuove colonne DisplayState non eliminano né riscrivono i dati legacy.
 
 ## Plugin e pianificazione
 
-Apri `/settings/plugins`. Ogni plugin ha un refresh interval proprio; la rotazione display è un timer separato. Cambiare una schermata non forza una richiesta meteo e aggiornare la cache meteo non cambia la schermata fino alla successiva rotazione. L'ordine iniziale è Clock, Weather, Photo; Photo resta disattivato finché non verrà implementata la gestione immagini.
+Apri `/settings/plugins`. Il refresh interval aggiorna contenuti/cache ma non cambia plugin; il rotation interval è la durata di permanenza a schermo. Con rotazione a 10 minuti Clock resta visibile per 10 minuti, poi Weather per 10 minuti, quindi Photo se abilitato e con almeno una foto attiva. Un refresh Clock/Weather ridisegna quel plugin solo se è già corrente. Solo rotazione o il comando manuale “Prossimo plugin” cambiano la playlist. Refresh corrente non azzera la scadenza; Next avanza una volta e riparte con una nuova durata.
+
+Clock usa un frame bianco senza banner, con ora grande, data italiana centrata e timezone discreta. Formato 12/24 ore, secondi, timezone e riepilogo meteo in cache sono configurabili nei parametri Clock; i secondi restano nascosti quando il refresh è almeno un minuto. Clear pulisce il pannello ma lascia invariata la playlist.
 
 L'ultimo plugin mostrato e il timestamp vengono salvati in `DisplayState`; dopo il riavvio la rotazione riprende dal plugin successivo nell'ordine persistito. Se non è disponibile alcuna cache meteo, il plugin mostra un layout offline informativo.
 
@@ -160,9 +162,9 @@ Le icone sono primitive Pillow monocromatiche scalabili: sole, sereno notturno, 
 
 In `/settings/weather` si possono mostrare o nascondere umidità, vento, pressione, temperatura percepita e forecast. Queste opzioni sono persistite nel JSON già presente in `PluginSettings.parameters`, quindi non richiedono una modifica dello schema SQLite. L'header mostra l'ora dell'ultimo fetch; sotto compare l'età calcolata dal timestamp persistito e, quando lo snapshot proviene dalla cache scaduta, `OFFLINE - dati da cache` senza rimuovere il meteo.
 
-Ogni render del `WeatherPlugin` aggiorna atomicamente `data/previews/weather-preview.png`; il mock display continua a gestire `data/previews/current.png` per il contenuto effettivamente inviato al display.
+Ogni render del `WeatherPlugin` aggiorna atomicamente `data/previews/weather-preview.png`. `data/previews/current.png` rappresenta invece l'ultimo frame inviato con successo, anche su hardware Waveshare; non viene sovrascritto dai refresh di contenuto o da GET di preview.
 
-Il toggle temperatura percepita è salvato e il renderer la mostra se lo snapshot la contiene. I parser provider correnti non valorizzano un campo normalizzato `feels_like`; perciò questa opzione non mostrerà un valore meteo reale finché tale dato non sarà esposto dagli adapter provider.
+La temperatura percepita viene normalizzata in `WeatherSnapshot` dai campi `apparent_temperature` di Open-Meteo e `main.feels_like` di OpenWeatherMap quando disponibili. Il renderer omette la riga se il provider non fornisce il valore.
 
 ## Gestione foto
 
@@ -176,11 +178,11 @@ Il plugin scrive automaticamente `data/previews/photo-preview.png`; `data/previe
 
 ## Preview
 
-Avvia l'app e apri `http://localhost:5000/` oppure `http://localhost:5000/api/preview`. Il PNG aggiornato viene scritto in `data/previews/current.png`. Non sono necessari font scaricati né rete; il renderer prova i font DejaVu o Arial installati e usa il font PIL come fallback.
+Avvia l'app e apri `http://localhost:5000/` oppure `http://localhost:5000/api/preview`. La preview corrisponde all'ultimo frame applicato con successo, usa header `no-store` e non comanda il pannello. La dashboard aggiunge un token versione basato su hash/timestamp. Prima del primo successo viene renderizzato il plugin pianificato senza inviarlo all'hardware. Non sono necessari font scaricati né rete; il renderer prova DejaVu o Arial e usa il fallback Pillow.
 
 ## Dashboard e display
 
-La dashboard conserva preview e stato applicazione, aggiunge plugin corrente/prossimo, scheduler, cache meteo, esito/hash display e riepilogo PhotoPlugin. La navbar condivisa porta a `/`, `/settings/plugins`, `/settings/weather`, `/photos`, `/photos/upload` e `/display`. La pagina `/display` permette refresh manuale del plugin corrente, clear e sleep; le richieste passano dallo stesso lock e dal controllo hash usati dalla rotazione.
+La dashboard distingue plugin pianificato, ultimo plugin realmente applicato, prossimo plugin, inizio e scadenza di permanenza, refresh contenuti, tentativo, successo, modalità ed hash. Mostra timestamp nella timezone configurata; se pianificazione e ultimo frame divergono, espone un avviso invece di presentarli come equivalenti. `/display` offre Refresh corrente, Prossimo plugin, Clear e Sleep; ogni comando usa il lock display condiviso e non crea job scheduler.
 
 ## Test e qualità
 

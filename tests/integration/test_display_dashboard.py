@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from io import BytesIO
 from pathlib import Path
 
@@ -8,7 +9,7 @@ from PIL import Image
 from inkdisplay.app import create_app
 from inkdisplay.application.services.photo_service import PhotoService
 from inkdisplay.extensions import db
-from inkdisplay.infrastructure.persistence.models import PluginSettings
+from inkdisplay.infrastructure.persistence.models import DisplayState, PluginSettings
 
 
 def _app(data_dir: Path, **config):
@@ -98,6 +99,7 @@ def test_waveshare_config_falls_back_on_windows_and_display_controls_work(
     assert b"MockDisplay" in client.get("/display").data
     assert client.post("/display/clear").status_code == 302
     assert client.post("/display/refresh").status_code == 302
+    assert client.post("/display/next").status_code == 302
     assert client.post("/display/sleep").status_code == 302
 
 
@@ -108,6 +110,131 @@ def test_dashboard_preserves_current_preview_link(tmp_path: Path) -> None:
     assert response.status_code == 200
     assert b"/api/preview" in response.data
     assert app.test_client().get("/health").json["display_mode"] == "mock"
+
+
+def test_dashboard_preview_read_does_not_redraw_clock_or_change_current_plugin(
+    tmp_path: Path,
+) -> None:
+    app = _app(tmp_path)
+    with app.app_context():
+        state = db.session.get(DisplayState, 1)
+        state.last_plugin_shown = "weather"
+        db.session.get(PluginSettings, "weather").enabled = True
+        db.session.commit()
+
+    display = app.extensions["inkdisplay.display"]
+    response = app.test_client().get("/api/preview")
+
+    assert response.status_code == 200
+    assert display.last_result == "not-updated"
+    with app.app_context():
+        assert db.session.get(DisplayState, 1).last_plugin_shown == "weather"
+
+
+def test_dashboard_preview_serves_last_successful_frame_without_cache(
+    tmp_path: Path,
+) -> None:
+    app = _app(tmp_path)
+    with app.app_context():
+        state = db.session.get(DisplayState, 1)
+        state.current_plugin = "weather"
+        db.session.get(PluginSettings, "weather").enabled = True
+        db.session.commit()
+        service = app.extensions["inkdisplay.plugin_service"]
+        assert service.redraw_current() == "weather"
+
+    display = app.extensions["inkdisplay.display"]
+    previous_result = display.last_result
+    expected_frame = (tmp_path / "previews" / "current.png").read_bytes()
+    client = app.test_client()
+    preview = client.get("/api/preview")
+    dashboard = client.get("/")
+
+    assert preview.data == expected_frame
+    assert preview.headers["Cache-Control"].startswith("no-store")
+    assert display.last_result == previous_result
+    assert b"Plugin pianificato" in dashboard.data
+    assert b"Plugin realmente mostrato" in dashboard.data
+    assert (
+        b"weather-preview" in dashboard.data or b"Contenuto: weather" in dashboard.data
+    )
+    assert b"v=" in dashboard.data
+
+
+def test_dashboard_formats_persisted_times_in_configured_timezone(
+    tmp_path: Path,
+) -> None:
+    app = _app(tmp_path, TIMEZONE="Europe/Rome")
+    with app.app_context():
+        state = db.session.get(DisplayState, 1)
+        state.current_plugin = "weather"
+        state.current_plugin_started_at = datetime(2026, 10, 1, 18, 23, 20, tzinfo=UTC)
+        state.current_plugin_expires_at = datetime(2026, 10, 1, 18, 33, 20, tzinfo=UTC)
+        state.last_display_success_at = datetime(2026, 10, 1, 18, 23, 20, tzinfo=UTC)
+        state.last_displayed_plugin = "weather"
+        state.last_display_result = "updated"
+        db.session.get(PluginSettings, "weather").enabled = True
+        db.session.commit()
+
+    response = app.test_client().get("/")
+
+    assert b"01/10/2026 20:23:20" in response.data
+    assert b"2026-10-01T18:23:20" not in response.data
+
+
+def test_manual_refresh_keeps_dwell_deadline_and_next_advances_once(
+    tmp_path: Path,
+) -> None:
+    app = _app(tmp_path)
+    start = datetime.now(UTC)
+    expires = start + timedelta(minutes=10)
+    with app.app_context():
+        state = db.session.get(DisplayState, 1)
+        state.current_plugin = "weather"
+        state.current_plugin_started_at = start
+        state.current_plugin_expires_at = expires
+        state.last_rotation_at = start
+        db.session.get(PluginSettings, "weather").enabled = True
+        db.session.commit()
+
+    client = app.test_client()
+    assert client.post("/display/refresh").status_code == 302
+    with app.app_context():
+        state = db.session.get(DisplayState, 1)
+        assert state.current_plugin == "weather"
+        assert state.current_plugin_expires_at.replace(tzinfo=UTC) == expires
+
+    assert client.post("/display/next").status_code == 302
+    with app.app_context():
+        state = db.session.get(DisplayState, 1)
+        assert state.current_plugin == "clock"
+        assert state.last_rotation_at is not None
+        assert state.current_plugin_expires_at is not None
+        assert (
+            state.current_plugin_expires_at.replace(tzinfo=UTC)
+            - state.current_plugin_started_at.replace(tzinfo=UTC)
+        ) == timedelta(minutes=10)
+
+
+def test_clear_preserves_planned_plugin_and_records_blank_frame(tmp_path: Path) -> None:
+    app = _app(tmp_path)
+    with app.app_context():
+        state = db.session.get(DisplayState, 1)
+        state.current_plugin = "weather"
+        state.current_plugin_started_at = datetime.now(UTC)
+        state.current_plugin_expires_at = datetime.now(UTC) + timedelta(minutes=10)
+        db.session.get(PluginSettings, "weather").enabled = True
+        db.session.commit()
+        assert app.extensions["inkdisplay.plugin_service"].redraw_current() == "weather"
+
+    assert app.test_client().post("/display/clear").status_code == 302
+    with app.app_context():
+        state = db.session.get(DisplayState, 1)
+        assert state.current_plugin == "weather"
+        assert state.last_displayed_plugin is None
+        assert state.last_display_result == "cleared"
+        frame = Image.open(tmp_path / "previews" / "current.png").convert("L")
+        assert frame.getextrema() == (255, 255)
 
 
 def test_shared_navigation_is_present_on_all_feature_pages(tmp_path: Path) -> None:

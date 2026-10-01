@@ -45,6 +45,25 @@ def refresh() -> Response:
     return redirect(url_for("display.index"))
 
 
+@display_blueprint.post("/display/next")
+def next_plugin() -> Response:
+    try:
+        plugin_key = _control_service().next_plugin()
+    except (DisplayBusyError, DisplayHardwareError, OSError, RuntimeError) as error:
+        current_app.logger.warning("Manual next plugin failed: %s", error)
+        flash("Cambio plugin non riuscito.", "error")
+    else:
+        flash(
+            (
+                f"Plugin corrente: {plugin_key}."
+                if plugin_key
+                else "Nessun plugin attivo."
+            ),
+            "success" if plugin_key else "error",
+        )
+    return redirect(url_for("display.index"))
+
+
 @display_blueprint.post("/display/clear")
 def clear() -> Response:
     try:

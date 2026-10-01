@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Mapping
+from io import BytesIO
 from pathlib import Path
 from typing import Any
 
@@ -75,7 +76,6 @@ def create_app(config_override: Mapping[str, Any] | None = None) -> Flask:
     display = selection.display
     app.config["DISPLAY_MODE"] = selection.mode
     renderer = ClockRenderer(timezone_name=str(app.config["TIMEZONE"]))
-    preview_service = PreviewService(renderer, display)
     secret_store = SecretStore(data_dir)
     settings_service = SettingsService(secret_store)
     weather_service = WeatherService(
@@ -92,9 +92,13 @@ def create_app(config_override: Mapping[str, Any] | None = None) -> Flask:
             "photo": PhotoPlugin(),
         },
         display,
+        preview_path,
     )
+    preview_service = PreviewService(plugin_service)
     scheduler = APSchedulerAdapter(app, plugin_service, data_dir / "scheduler.lock")
-    display_service = DisplayControlService(display, plugin_service, scheduler)
+    display_service = DisplayControlService(
+        display, plugin_service, scheduler, str(app.config["TIMEZONE"])
+    )
 
     @app.get("/")
     def dashboard() -> str:
@@ -106,8 +110,24 @@ def create_app(config_override: Mapping[str, Any] | None = None) -> Flask:
 
     @app.get("/api/preview")
     def preview() -> Any:
-        preview_service.refresh_clock_preview()
-        return send_file(preview_path, mimetype="image/png", max_age=0)
+        display_state = plugin_service.status()
+        if (
+            preview_path.is_file()
+            and display_state["last_display_success_at"] is not None
+        ):
+            response = send_file(
+                preview_path, mimetype="image/png", max_age=0, conditional=False
+            )
+        else:
+            image = preview_service.render_current()
+            buffer = BytesIO()
+            image.save(buffer, format="PNG")
+            buffer.seek(0)
+            response = send_file(
+                buffer, mimetype="image/png", max_age=0, conditional=False
+            )
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+        return response
 
     app.extensions["inkdisplay.display"] = display
     app.extensions["inkdisplay.renderer"] = renderer

@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 import requests
-from PIL import Image
+from PIL import Image, ImageDraw
 
 from inkdisplay.application.services.weather_service import WeatherUnavailable
 from inkdisplay.domain.weather import ForecastDay, WeatherSnapshot
@@ -21,6 +21,10 @@ from inkdisplay.presentation.rendering.weather_renderer import (
     WeatherDisplayOptions,
     WeatherRenderer,
 )
+
+
+def _ink_bbox(image: Image.Image) -> tuple[int, int, int, int] | None:
+    return Image.eval(image.convert("L"), lambda value: 255 - value).getbbox()
 
 
 def test_weather_renderer_returns_epaper_frame() -> None:
@@ -47,6 +51,10 @@ def test_weather_renderer_returns_epaper_frame() -> None:
     assert image.size == unavailable.size == (400, 300)
     assert image.mode == unavailable.mode == "1"
     assert image.getbbox() is not None
+    assert unavailable.crop((0, 0, 400, 60)).convert("L").getextrema() == (
+        255,
+        255,
+    )
     assert len(snapshot.forecast) == 3
 
 
@@ -76,6 +84,20 @@ def test_weather_renderer_hides_disabled_details_and_forecast() -> None:
     assert image.crop((0, 230, 400, 300)).convert("L").getextrema() == (255, 255)
 
 
+def test_weather_temperature_uses_font_independent_degree_mark() -> None:
+    with_degree = Image.new("1", (300, 70), color=255)
+    without_degree = Image.new("1", (300, 70), color=255)
+
+    WeatherRenderer._draw_temperature(
+        ImageDraw.Draw(with_degree), 18, "°C", (0, 0, 290, 64)
+    )
+    WeatherRenderer._draw_temperature(
+        ImageDraw.Draw(without_degree), 18, "C", (0, 0, 290, 64)
+    )
+
+    assert with_degree.tobytes() != without_degree.tobytes()
+
+
 def test_weather_renderer_fits_long_city_names_and_optional_feels_like() -> None:
     snapshot = WeatherSnapshot(
         location="San Valentino in Abruzzo Citeriore",
@@ -100,6 +122,68 @@ def test_weather_renderer_fits_long_city_names_and_optional_feels_like() -> None
     assert with_feels_like.crop((125, 150, 390, 171)).tobytes() != (
         without_feels_like.crop((125, 150, 390, 171)).tobytes()
     )
+
+
+def test_weather_layout_uses_three_forecast_columns_without_clipping() -> None:
+    snapshot = WeatherSnapshot(
+        location="San Valentino in Abruzzo Citeriore",
+        observed_at="2026-10-01T20:08:00+02:00",
+        weather_code=3,
+        description="Nuvoloso",
+        temperature=18,
+        feels_like=17,
+        humidity=69,
+        wind_speed=13,
+        pressure=1028,
+        forecast=(
+            ForecastDay("2026-10-02", 2, 13, 18),
+            ForecastDay("2026-10-03", 61, 11, 17),
+            ForecastDay("2026-10-04", 0, 12, 19),
+        ),
+    )
+    image = WeatherRenderer().render(
+        snapshot, WeatherDisplayOptions(show_feels_like=True)
+    )
+    ink = _ink_bbox(image)
+
+    assert image.size == (400, 300)
+    assert image.mode == "1"
+    assert image.crop((0, 0, 400, 4)).convert("L").getextrema() == (255, 255)
+    assert (
+        ink is not None
+        and ink[0] >= 12
+        and ink[1] >= 12
+        and ink[2] <= 388
+        and ink[3] <= 288
+    )
+    for left, right in ((0, 126), (126, 252), (252, 400)):
+        assert _ink_bbox(image.crop((left, 232, right, 300))) is not None
+
+
+def test_weather_without_optional_rows_or_forecast_has_no_empty_labels() -> None:
+    snapshot = WeatherSnapshot(
+        location="Brescia",
+        observed_at="2026-10-01T20:08:00+02:00",
+        weather_code=0,
+        description="Sereno",
+        temperature=18,
+        humidity=69,
+        wind_speed=13,
+        pressure=1028,
+        forecast=(),
+    )
+    image = WeatherRenderer().render(
+        snapshot,
+        WeatherDisplayOptions(
+            show_humidity=False,
+            show_wind=False,
+            show_pressure=False,
+            show_feels_like=True,
+            show_forecast=False,
+        ),
+    )
+
+    assert _ink_bbox(image.crop((0, 180, 400, 299))) is None
 
 
 @pytest.mark.parametrize(
@@ -134,6 +218,7 @@ def test_open_meteo_parser_maps_current_and_three_forecast_days() -> None:
             "time": "2026-09-27T12:00",
             "weather_code": 61,
             "temperature_2m": 20.5,
+            "apparent_temperature": 19.5,
             "relative_humidity_2m": 70,
             "wind_speed_10m": 10.0,
             "pressure_msl": 1013.0,
@@ -151,6 +236,7 @@ def test_open_meteo_parser_maps_current_and_three_forecast_days() -> None:
 
     assert snapshot.location == "Roma"
     assert snapshot.description == "Pioggia"
+    assert snapshot.feels_like == 19.5
     assert len(snapshot.forecast) == 3
     assert snapshot.forecast[0].temperature_min == 14
     english_request = WeatherRequest(41.9, 12.5, "Rome", "Europe/Rome", "metric", "en")
@@ -163,7 +249,12 @@ def test_openweathermap_parser_groups_forecast_and_normalizes_codes() -> None:
     current = {
         "dt": 1769572800,
         "name": "Roma",
-        "main": {"temp": 18, "humidity": 60, "pressure": 1011},
+        "main": {
+            "temp": 18,
+            "feels_like": 17.5,
+            "humidity": 60,
+            "pressure": 1011,
+        },
         "weather": [{"id": 500, "description": "pioggia leggera"}],
         "wind": {"speed": 4.0},
     }
@@ -183,6 +274,7 @@ def test_openweathermap_parser_groups_forecast_and_normalizes_codes() -> None:
 
     assert snapshot.location == "Roma"
     assert snapshot.weather_code == 61
+    assert snapshot.feels_like == 17.5
     assert len(snapshot.forecast) == 3
     assert snapshot.forecast[1].temperature_max == 50
     assert openweather_to_wmo(800) == 0
@@ -251,8 +343,7 @@ def test_weather_service_uses_persisted_snapshot_when_offline(
         status = WeatherRenderer.freshness_message(
             displayed, now=datetime(2026, 9, 27, 14, 0, tzinfo=UTC)
         )
-        assert status.startswith("OFFLINE - dati da cache")
-        assert "Dati aggiornati 120 minuti fa" in status
+        assert status == "OFFLINE · dati cache"
 
 
 def test_weather_render_plugin_does_not_fetch_on_each_render(

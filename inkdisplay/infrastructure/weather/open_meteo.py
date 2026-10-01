@@ -104,6 +104,11 @@ class OpenMeteoProvider:
                 wind_speed=float(current["wind_speed_10m"]),
                 pressure=float(current["pressure_msl"]),
                 forecast=forecast,
+                feels_like=(
+                    float(current["apparent_temperature"])
+                    if current.get("apparent_temperature") is not None
+                    else None
+                ),
                 temperature_unit="°F" if request.units == "imperial" else "°C",
                 wind_unit="mph" if request.units == "imperial" else "km/h",
                 language=request.language,

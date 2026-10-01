@@ -33,17 +33,28 @@
     <main class="layout">
       <section aria-label="Anteprima display">
         <h2>Anteprima corrente</h2>
-        <img class="preview" src="{{ url_for('preview') }}" width="400" height="300" alt="Anteprima corrente e-paper">
+        <img class="preview" src="{{ url_for('preview', v=status.last_displayed_hash or status.last_display_success_at or 'initial') }}" width="400" height="300" alt="Anteprima corrente e-paper">
+        <p class="hint">Contenuto: {{ status.last_displayed_plugin or ('schermo pulito' if status.last_result == 'cleared' else status.current_plugin or 'non ancora applicato') }}{% if status.last_display_success_at %} · aggiornato {{ status.last_display_success_at }}{% endif %}</p>
       </section>
       <div class="status-grid">
         <section>Stato applicazione<strong>{{ status.application_status|upper }}</strong></section>
         <section>Driver attivo<strong>{{ status.driver_name }}</strong></section>
-        <section>Plugin corrente<strong>{{ status.current_plugin or 'Nessuno' }}</strong></section>
+        <section>Plugin pianificato<strong>{{ status.current_plugin or 'Nessuno' }}</strong></section>
+        <section>Plugin realmente mostrato<strong>{{ status.last_displayed_plugin or ('Schermo pulito' if status.last_result == 'cleared' else 'Nessuno') }}</strong></section>
         <section>Prossimo plugin<strong>{{ status.next_plugin or 'Nessuno' }}</strong></section>
+        <section>Inizio visualizzazione<strong>{{ status.current_plugin_started_at or 'Non disponibile' }}</strong></section>
+        <section>Cambio previsto<strong>{{ status.current_plugin_expires_at or 'Non pianificato' }}{% if status.next_rotation_in_minutes is not none %} · fra {{ status.next_rotation_in_minutes }} min{% endif %}</strong></section>
+        <section>Refresh Clock<strong>{{ status.clock_content_refresh_at or 'Mai' }}</strong></section>
+        <section>Refresh Weather<strong>{{ status.weather_content_refresh_at or 'Mai' }}</strong></section>
         <section>Scheduler<strong>{{ 'Attivo' if status.scheduler_running else 'Fermo' }}</strong></section>
         <section>Meteo cache<strong>{{ 'Disponibile' if status.weather_available else 'Non disponibile' }}</strong></section>
-        <section>Ultimo update display<strong>{{ status.last_update_at or 'Non ancora aggiornato' }}</strong></section>
-        <section>Esito ultimo update<strong>{{ status.last_result }}</strong></section>
+        <section>Ultimo tentativo<strong>{{ status.last_display_attempt_plugin or 'Nessuno' }}{% if status.last_display_attempt_at %} · {{ status.last_display_attempt_at }}{% endif %}</strong></section>
+        <section>Ultimo successo display<strong>{{ status.last_display_success_at or 'Non ancora aggiornato' }}</strong></section>
+        <section>Modalità refresh effettiva<strong>{{ status.last_refresh_mode }}</strong></section>
+        <section>Hash ultimo frame<strong>{{ status.last_displayed_hash or 'Nessuno' }}</strong></section>
+        <section>Esito ultimo aggiornamento<strong>{{ status.last_result }}</strong></section>
+        {% if status.single_plugin %}<section>Rotazione<strong>{{ status.only_plugin_message }}</strong></section>{% endif %}
+        {% if not status.state_consistent %}<section role="alert">Incoerenza display<strong>Il plugin pianificato non coincide con l'ultimo contenuto applicato.</strong></section>{% endif %}
       </div>
       <section class="photo-card" aria-label="Stato PhotoPlugin">
         <h2>PhotoPlugin {% if not status.photo_plugin_enabled %}<span class="badge">Plugin disattivato</span>{% endif %}</h2>

@@ -25,10 +25,17 @@ class SettingsService:
         plugins = {
             item.plugin_key: item for item in db.session.query(PluginSettings).all()
         }
+        clock_parameters = plugins["clock"].parameters
         return {
             "rotation_interval_minutes": settings.rotation_interval_minutes,
             "clock_enabled": plugins["clock"].enabled,
             "clock_refresh_interval": plugins["clock"].refresh_interval_minutes,
+            "clock_time_format": clock_parameters.get("time_format", "24h"),
+            "clock_show_seconds": clock_parameters.get("show_seconds", False),
+            "clock_show_timezone": clock_parameters.get("show_timezone", True),
+            "clock_show_weather_summary": clock_parameters.get(
+                "show_weather_summary", False
+            ),
             "weather_enabled": plugins["weather"].enabled,
             "weather_refresh_interval": plugins["weather"].refresh_interval_minutes,
         }
@@ -47,6 +54,18 @@ class SettingsService:
         settings.rotation_interval_minutes = rotation
         self._update_plugin("clock", "clock_enabled" in form, clock_interval, 0)
         self._update_plugin("weather", "weather_enabled" in form, weather_interval, 1)
+        clock = db.session.get(PluginSettings, "clock")
+        if clock is not None:
+            time_format = form.get("clock_time_format", "24h").strip().lower()
+            if time_format not in {"12h", "24h"}:
+                raise SettingsValidationError("Seleziona un formato orario valido.")
+            clock.parameters = {
+                **clock.parameters,
+                "time_format": time_format,
+                "show_seconds": "clock_show_seconds" in form,
+                "show_timezone": "clock_show_timezone" in form,
+                "show_weather_summary": "clock_show_weather_summary" in form,
+            }
         self._commit()
 
     def weather_values(self) -> dict[str, object]:

@@ -30,6 +30,14 @@
         <label class="enable"><input type="checkbox" name="clock_enabled" {% if values.clock_enabled %}checked{% endif %}> Attivo</label>
         <label for="clock-refresh">Aggiorna contenuto ogni (minuti)</label>
         <input id="clock-refresh" type="number" name="clock_refresh_interval" min="1" required value="{{ values.clock_refresh_interval }}">
+        <label for="clock-time-format">Formato orario</label>
+        <select id="clock-time-format" name="clock_time_format">
+          <option value="24h" {% if values.clock_time_format == '24h' %}selected{% endif %}>24 ore</option>
+          <option value="12h" {% if values.clock_time_format == '12h' %}selected{% endif %}>12 ore</option>
+        </select>
+        <label class="enable"><input type="checkbox" name="clock_show_seconds" {% if values.clock_show_seconds %}checked{% endif %}> Mostra secondi (nascosti se il refresh è almeno 1 minuto)</label>
+        <label class="enable"><input type="checkbox" name="clock_show_timezone" {% if values.clock_show_timezone %}checked{% endif %}> Mostra timezone</label>
+        <label class="enable"><input type="checkbox" name="clock_show_weather_summary" {% if values.clock_show_weather_summary %}checked{% endif %}> Mostra riepilogo meteo in cache</label>
       </fieldset>
       <fieldset>
         <legend>WeatherPlugin</legend>

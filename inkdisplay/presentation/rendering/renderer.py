@@ -60,38 +60,50 @@ class ClockRenderer:
     def __init__(self, timezone_name: str = "Europe/Rome") -> None:
         self.timezone = ZoneInfo(timezone_name)
 
-    def render_clock(self, now: datetime | None = None) -> Image.Image:
-        """Render an Italian 24-hour clock as a 1-bit display image."""
+    def render_clock(
+        self,
+        now: datetime | None = None,
+        *,
+        time_format: str = "24h",
+        show_seconds: bool = False,
+        show_timezone: bool = True,
+        weather_summary: str | None = None,
+    ) -> Image.Image:
+        """Render a centered Italian clock as a 1-bit display image."""
         current = (now or datetime.now(self.timezone)).astimezone(self.timezone)
         image = Image.new("1", (WIDTH, HEIGHT), color=255)
         draw = ImageDraw.Draw(image)
-
-        draw.rectangle((0, 0, WIDTH, 48), fill=0)
-        draw.text(
-            (22, 13), "MYINKY  |  OROLOGIO", font=_load_font(17, bold=True), fill=1
-        )
 
         date_text = (
             f"{WEEKDAYS_IT[current.weekday()].capitalize()} "
             f"{current.day} {MONTHS_IT[current.month - 1]} {current.year}"
         )
-        self._draw_fitted(draw, date_text, (22, 81, 378, 118), 24, 16, bold=True)
-
-        time_text = current.strftime("%H:%M")
-        self._draw_fitted(draw, time_text, (18, 126, 382, 231), 92, 62, bold=True)
-
-        timezone_text = current.strftime("%Z") or self.timezone.key
-        draw.line((22, 253, 378, 253), fill=0, width=1)
-        draw.text(
-            (22, 268),
-            f"FUSO ORARIO  {timezone_text}",
-            font=_load_font(15),
-            fill=0,
+        time_text = (
+            current.strftime("%I:%M")
+            if time_format == "12h"
+            else current.strftime("%H:%M")
         )
+        if time_format == "12h":
+            time_text = time_text.lstrip("0")
+        if show_seconds:
+            time_text += current.strftime(":%S")
+        self._draw_centered_fitted(
+            draw, time_text, (14, 36, 386, 190), 140, 72, bold=True
+        )
+        self._draw_centered_fitted(
+            draw, date_text, (14, 197, 386, 242), 29, 18, bold=True
+        )
+        if weather_summary:
+            self._draw_centered_fitted(
+                draw, weather_summary, (14, 243, 386, 265), 17, 12
+            )
+        if show_timezone:
+            timezone_text = f"{self.timezone.key} · {current.strftime('%Z')}"
+            self._draw_centered_fitted(draw, timezone_text, (14, 266, 386, 288), 17, 12)
         return image
 
     @staticmethod
-    def _draw_fitted(
+    def _draw_centered_fitted(
         draw: ImageDraw.ImageDraw,
         text: str,
         bounds: tuple[int, int, int, int],
@@ -103,7 +115,15 @@ class ClockRenderer:
         for size in range(maximum_size, minimum_size - 1, -1):
             font = _load_font(size, bold=bold)
             text_bounds = draw.textbbox((0, 0), text, font=font)
-            if text_bounds[2] - text_bounds[0] <= right - left:
-                draw.text((left, top), text, font=font, fill=0)
+            text_width = text_bounds[2] - text_bounds[0]
+            text_height = text_bounds[3] - text_bounds[1]
+            if text_width <= right - left and text_height <= bottom - top:
+                x = left + (right - left - text_width) // 2 - text_bounds[0]
+                y = top + (bottom - top - text_height) // 2 - text_bounds[1]
+                draw.text((x, y), text, font=font, fill=0)
                 return
-        draw.text((left, top), text, font=_load_font(minimum_size, bold=bold), fill=0)
+        font = _load_font(minimum_size, bold=bold)
+        text_bounds = draw.textbbox((0, 0), text, font=font)
+        x = left + (right - left - (text_bounds[2] - text_bounds[0])) // 2
+        y = top + (bottom - top - (text_bounds[3] - text_bounds[1])) // 2
+        draw.text((x - text_bounds[0], y - text_bounds[1]), text, font=font, fill=0)

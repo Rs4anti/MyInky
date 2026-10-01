@@ -96,6 +96,11 @@ class OpenWeatherMapProvider:
                 wind_speed=float(wind["speed"]),
                 pressure=float(main["pressure"]),
                 forecast=forecast,
+                feels_like=(
+                    float(main["feels_like"])
+                    if main.get("feels_like") is not None
+                    else None
+                ),
                 temperature_unit=(
                     "°F"
                     if request.units == "imperial"

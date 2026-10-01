@@ -1,17 +1,13 @@
-"""Clock preview use case."""
+"""Read-only preview of the currently scheduled plugin."""
 
 from PIL import Image
 
-from inkdisplay.infrastructure.display.port import DisplayPort
-from inkdisplay.presentation.rendering.renderer import ClockRenderer
+from inkdisplay.application.services.plugin_service import PluginService
 
 
 class PreviewService:
-    def __init__(self, renderer: ClockRenderer, display: DisplayPort) -> None:
-        self._renderer = renderer
-        self._display = display
+    def __init__(self, plugin_service: PluginService) -> None:
+        self._plugin_service = plugin_service
 
-    def refresh_clock_preview(self) -> Image.Image:
-        image = self._renderer.render_clock()
-        self._display.display(image)
-        return image
+    def render_current(self) -> Image.Image:
+        return self._plugin_service.preview_current()

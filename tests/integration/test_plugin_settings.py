@@ -27,6 +27,7 @@ def test_settings_pages_render(tmp_path: Path) -> None:
     assert client.get("/settings/plugins").status_code == 200
     weather_page = client.get("/settings/weather")
     assert weather_page.status_code == 200
+    assert b"clock_time_format" in client.get("/settings/plugins").data
     for option in (
         b"show_humidity",
         b"show_wind",
@@ -49,6 +50,9 @@ def test_plugin_intervals_are_validated_and_persisted(tmp_path: Path) -> None:
             "weather_enabled": "on",
             "weather_refresh_interval": "30",
             "rotation_interval_minutes": "10",
+            "clock_time_format": "12h",
+            "clock_show_timezone": "on",
+            "clock_show_weather_summary": "on",
         },
     )
 
@@ -57,6 +61,11 @@ def test_plugin_intervals_are_validated_and_persisted(tmp_path: Path) -> None:
         assert db.session.get(PluginSettings, "clock").refresh_interval_minutes == 1
         assert db.session.get(PluginSettings, "weather").refresh_interval_minutes == 30
         assert db.session.get(Settings, 1).rotation_interval_minutes == 10
+        clock_parameters = db.session.get(PluginSettings, "clock").parameters
+        assert clock_parameters["time_format"] == "12h"
+        assert clock_parameters["show_seconds"] is False
+        assert clock_parameters["show_timezone"] is True
+        assert clock_parameters["show_weather_summary"] is True
 
     invalid = client.post(
         "/settings/plugins",

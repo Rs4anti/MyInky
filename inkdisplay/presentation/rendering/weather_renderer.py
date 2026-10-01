@@ -79,14 +79,17 @@ class WeatherRenderer:
     def render_unavailable(self) -> Image.Image:
         image = Image.new("1", (WIDTH, HEIGHT), color=1)
         draw = ImageDraw.Draw(image)
-        draw.rectangle((0, 0, WIDTH, 37), fill=0)
-        draw.text((14, 7), "METEO", font=_font(22, True), fill=1)
-        draw.text((30, 112), "DATI METEO NON DISPONIBILI", font=_font(20, True), fill=0)
-        draw.text(
-            (58, 147),
+        self._fit_text(
+            draw, "METEO NON DISPONIBILE", (14, 96, 386, 136), 27, 19, True, 0
+        )
+        self._fit_text(
+            draw,
             "Configura una località o attendi la rete",
-            font=_font(14),
-            fill=0,
+            (14, 145, 386, 177),
+            18,
+            13,
+            False,
+            0,
         )
         return image
 
@@ -106,19 +109,18 @@ class WeatherRenderer:
         )
         language = weather.language.lower().split("-", maxsplit=1)[0]
         labels = UI_LABELS.get(language, UI_LABELS["it"])
-        draw.rectangle((0, 0, WIDTH, 37), fill=0)
         self._fit_text(
-            draw, weather.location.upper(), (12, 5, 285, 32), 24, 13, True, 1
+            draw, weather.location.upper(), (12, 12, 295, 39), 24, 10, True, 0
         )
-        draw.text(
-            (322, 9), refreshed_at.strftime("%H:%M"), font=_font(20, True), fill=1
+        self._fit_text(
+            draw, refreshed_at.strftime("%H:%M"), (318, 12, 388, 39), 20, 13, True, 0
         )
         self._fit_text(
             draw,
             self.freshness_message(weather, now=now),
-            (12, 41, 388, 58),
-            12,
-            9,
+            (12, 42, 388, 61),
+            14,
+            10,
             True,
             0,
         )
@@ -126,27 +128,30 @@ class WeatherRenderer:
         is_day = weather.is_day
         if is_day is None:
             is_day = 6 <= observed_at.hour < 18
-        self._icon(image, weather.weather_code, 24, 66, 88, is_day=is_day)
-        temperature = f"{weather.temperature:.0f}{weather.temperature_unit}"
-        self._fit_text(draw, temperature, (130, 64, 390, 127), 58, 39, True, 0)
+        self._icon(image, weather.weather_code, 22, 69, 94, is_day=is_day)
+        self._draw_temperature(
+            draw, weather.temperature, weather.temperature_unit, (132, 64, 388, 128)
+        )
         self._fit_text(
             draw,
             weather.description,
-            (134, 127, 389, 153),
-            23,
-            13,
+            (134, 129, 388, 155),
+            22,
+            12,
             True,
             0,
         )
         if options.show_feels_like and weather.feels_like is not None:
-            draw.text(
-                (135, 151),
+            self._fit_text(
+                draw,
                 f"Percepita {weather.feels_like:.0f}{weather.temperature_unit}",
-                font=_font(12, True),
-                fill=0,
+                (135, 155, 388, 173),
+                15,
+                10,
+                True,
+                0,
             )
 
-        draw.line((12, 174, 388, 174), fill=0, width=1)
         metrics: list[tuple[str, str]] = []
         if options.show_humidity:
             metrics.append((labels[1], f"{weather.humidity}%"))
@@ -154,11 +159,15 @@ class WeatherRenderer:
             metrics.append((labels[2], f"{weather.wind_speed:.0f} {weather.wind_unit}"))
         if options.show_pressure:
             metrics.append((labels[3], f"{weather.pressure:.0f} hPa"))
-        self._draw_metrics(draw, metrics)
-        draw.line((12, 219, 388, 219), fill=0, width=1)
+        if options.show_forecast:
+            draw.line((12, 177, 387, 177), fill=0, width=1)
+            self._draw_metrics(draw, metrics, top=180, height=34)
+            draw.line((12, 216, 387, 216), fill=0, width=1)
+        else:
+            self._draw_metrics(draw, metrics, top=199, height=72)
 
         if options.show_forecast:
-            draw.text((13, 222), labels[4], font=_font(13, True), fill=0)
+            draw.text((13, 218), labels[4], font=_font(13, True), fill=0)
             for index, forecast in enumerate(weather.forecast[:3]):
                 self._forecast_day(image, draw, forecast, index, weather.language)
         return image
@@ -174,10 +183,9 @@ class WeatherRenderer:
         if current.tzinfo is None:
             current = current.replace(tzinfo=observed_at.tzinfo or UTC)
         age_minutes = max(0, int((current - observed_at).total_seconds() // 60))
-        age_text = f"Dati aggiornati {age_minutes} minuti fa"
         if weather.stale:
-            return f"OFFLINE - dati da cache · {age_text}"
-        return age_text
+            return "OFFLINE · dati cache"
+        return f"Aggiornato {age_minutes} min fa"
 
     @staticmethod
     def _observed_datetime(value: str) -> datetime:
@@ -189,7 +197,11 @@ class WeatherRenderer:
 
     @staticmethod
     def _draw_metrics(
-        draw: ImageDraw.ImageDraw, metrics: list[tuple[str, str]]
+        draw: ImageDraw.ImageDraw,
+        metrics: list[tuple[str, str]],
+        *,
+        top: int,
+        height: int,
     ) -> None:
         if not metrics:
             return
@@ -200,23 +212,89 @@ class WeatherRenderer:
             WeatherRenderer._fit_text(
                 draw,
                 label,
-                (x, 179, round(left + (index + 1) * column_width - 6), 196),
-                13,
-                10,
+                (x, top, round(left + (index + 1) * column_width - 6), top + 18),
+                14,
+                9,
                 True,
                 0,
             )
             WeatherRenderer._fit_text(
                 draw,
                 value,
-                (x, 197, round(left + (index + 1) * column_width - 6), 216),
-                18,
-                11,
+                (
+                    x,
+                    top + 19,
+                    round(left + (index + 1) * column_width - 6),
+                    top + height,
+                ),
+                20,
+                12,
                 True,
                 0,
             )
             if index and index < len(metrics):
-                draw.line((x - 8, 181, x - 8, 212), fill=0, width=1)
+                draw.line((x - 8, top + 2, x - 8, top + height - 3), fill=0, width=1)
+
+    @staticmethod
+    def _draw_temperature(
+        draw: ImageDraw.ImageDraw,
+        temperature: float,
+        unit: str,
+        bounds: tuple[int, int, int, int],
+    ) -> None:
+        left, top, right, bottom = bounds
+        number = f"{temperature:.0f}"
+        has_degree = unit.startswith("°")
+        unit_label = unit[-1] if has_degree else unit
+        for size in range(62, 37, -1):
+            number_font = _font(size, True)
+            unit_font = _font(max(18, round(size * 0.58)), True)
+            number_bounds = draw.textbbox((0, 0), number, font=number_font)
+            unit_bounds = draw.textbbox((0, 0), unit_label, font=unit_font)
+            degree_size = max(7, round(size * 0.13)) if has_degree else 0
+            gap = max(5, round(size * 0.1))
+            group_width = (
+                number_bounds[2]
+                - number_bounds[0]
+                + gap
+                + degree_size
+                + (24 if has_degree else 0)
+                + unit_bounds[2]
+                - unit_bounds[0]
+            )
+            if group_width <= right - left:
+                number_height = number_bounds[3] - number_bounds[1]
+                unit_height = unit_bounds[3] - unit_bounds[1]
+                number_y = top + (bottom - top - number_height) // 2
+                number_x = left
+                draw.text(
+                    (number_x - number_bounds[0], number_y - number_bounds[1]),
+                    number,
+                    font=number_font,
+                    fill=0,
+                )
+                unit_x = number_x + number_bounds[2] + gap
+                unit_y = top + (bottom - top - unit_height) // 2
+                if has_degree:
+                    degree_y = unit_y - degree_size - 2
+                    draw.ellipse(
+                        (
+                            unit_x,
+                            degree_y,
+                            unit_x + degree_size,
+                            degree_y + degree_size,
+                        ),
+                        outline=0,
+                        width=max(2, round(size * 0.04)),
+                    )
+                    unit_x += degree_size + 23
+                draw.text(
+                    (unit_x - unit_bounds[0], unit_y - unit_bounds[1]),
+                    unit_label,
+                    font=unit_font,
+                    fill=0,
+                )
+                return
 
     @classmethod
     def _forecast_day(
@@ -227,7 +305,7 @@ class WeatherRenderer:
         index: int,
         language: str,
     ) -> None:
-        x = 12 + index * 126
+        x = 12 + index * 125
         try:
             day = date.fromisoformat(forecast.date)
             weekday_labels = WEEKDAY_LABELS.get(
@@ -236,13 +314,19 @@ class WeatherRenderer:
             day_label = weekday_labels[day.weekday()] + f" {day.day:02d}"
         except ValueError:
             day_label = forecast.date[5:].replace("-", "/")
-        cls._fit_text(draw, day_label, (x, 239, x + 70, 256), 14, 11, True, 0)
-        cls._icon(image, forecast.weather_code, x + 78, 237, 25)
-        draw.text(
-            (x + 8, 278),
+        cls._fit_text(
+            draw, day_label, (x, 233, x + 125, 249), 14, 10, True, 0, center=True
+        )
+        cls._icon(image, forecast.weather_code, x + 51, 249, 23)
+        cls._fit_text(
+            draw,
             f"{forecast.temperature_min:.0f}° / {forecast.temperature_max:.0f}°",
-            font=_font(13, True),
-            fill=0,
+            (x, 273, x + 125, 288),
+            12,
+            9,
+            True,
+            0,
+            center=True,
         )
 
     @classmethod
@@ -268,8 +352,8 @@ class WeatherRenderer:
         if name == "sun":
             WeatherRenderer._draw_sun(draw, 48, 47, 19, 0)
         elif name == "moon":
-            draw.ellipse((18, 15, 78, 75), fill=0)
-            draw.ellipse((39, 5, 91, 57), fill=255)
+            draw.ellipse((18, 15, 78, 75), outline=0, width=5)
+            draw.ellipse((39, 5, 91, 57), outline=0, width=3)
         elif name == "partly_cloudy":
             WeatherRenderer._draw_sun(draw, 36, 34, 15, 0)
             WeatherRenderer._draw_cloud(draw, 17, 32)
@@ -315,10 +399,30 @@ class WeatherRenderer:
 
     @staticmethod
     def _draw_cloud(draw: ImageDraw.ImageDraw, x: int, y: int) -> None:
-        draw.ellipse((x + 5, y + 24, x + 45, y + 65), fill=0)
-        draw.ellipse((x + 25, y + 7, x + 66, y + 65), fill=0)
-        draw.ellipse((x + 48, y + 25, x + 80, y + 65), fill=0)
-        draw.rectangle((x + 17, y + 42, x + 68, y + 66), fill=0)
+        points = (
+            (x + 13, y + 57),
+            (x + 9, y + 53),
+            (x + 8, y + 47),
+            (x + 10, y + 41),
+            (x + 14, y + 37),
+            (x + 20, y + 36),
+            (x + 25, y + 38),
+            (x + 27, y + 32),
+            (x + 31, y + 27),
+            (x + 37, y + 24),
+            (x + 43, y + 25),
+            (x + 49, y + 29),
+            (x + 52, y + 35),
+            (x + 52, y + 39),
+            (x + 57, y + 37),
+            (x + 63, y + 38),
+            (x + 68, y + 42),
+            (x + 70, y + 48),
+            (x + 68, y + 53),
+            (x + 64, y + 57),
+            (x + 13, y + 57),
+        )
+        draw.line(points, fill=0, width=4, joint="curve")
 
     @staticmethod
     def _draw_snowflake(draw: ImageDraw.ImageDraw, x: int, y: int, radius: int) -> None:
@@ -337,11 +441,40 @@ class WeatherRenderer:
         min_size: int,
         bold: bool,
         fill: int,
+        center: bool = False,
     ) -> None:
-        left, top, right, _ = bounds
+        left, top, right, bottom = bounds
         for size in range(max_size, min_size - 1, -1):
             font = _font(size, bold)
-            if draw.textbbox((0, 0), text, font=font)[2] <= right - left:
-                draw.text((left, top), text, font=font, fill=fill)
+            text_bounds = draw.textbbox((0, 0), text, font=font)
+            width = text_bounds[2] - text_bounds[0]
+            height = text_bounds[3] - text_bounds[1]
+            if width <= right - left and height <= bottom - top:
+                draw.text(
+                    (
+                        left
+                        + ((right - left - width) // 2 if center else 0)
+                        - text_bounds[0],
+                        top - text_bounds[1],
+                    ),
+                    text,
+                    font=font,
+                    fill=fill,
+                )
                 return
-        draw.text((left, top), text[:30], font=_font(min_size, bold), fill=fill)
+        font = _font(min_size, bold)
+        candidate = text
+        while candidate:
+            bounds_at_minimum = draw.textbbox((0, 0), candidate, font=font)
+            if (
+                bounds_at_minimum[2] - bounds_at_minimum[0] <= right - left
+                and bounds_at_minimum[3] - bounds_at_minimum[1] <= bottom - top
+            ):
+                draw.text(
+                    (left - bounds_at_minimum[0], top - bounds_at_minimum[1]),
+                    candidate,
+                    font=font,
+                    fill=fill,
+                )
+                return
+            candidate = candidate[:-2] + "…" if len(candidate) > 1 else ""
