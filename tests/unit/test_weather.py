@@ -124,6 +124,27 @@ def test_weather_renderer_fits_long_city_names_and_optional_feels_like() -> None
     )
 
 
+def test_current_temperature_occupies_a_large_readable_region() -> None:
+    snapshot = WeatherSnapshot(
+        location="Roma",
+        observed_at="2026-10-01T22:16:00+02:00",
+        weather_code=0,
+        description="Sereno",
+        temperature=18,
+        humidity=50,
+        wind_speed=5,
+        pressure=1015,
+        forecast=(),
+    )
+    image = WeatherRenderer().render(
+        snapshot, WeatherDisplayOptions(show_forecast=False)
+    )
+    temperature_bounds = _ink_bbox(image.crop((132, 64, 388, 144)))
+
+    assert temperature_bounds is not None
+    assert temperature_bounds[3] - temperature_bounds[1] >= 55
+
+
 def test_weather_layout_uses_three_forecast_columns_without_clipping() -> None:
     snapshot = WeatherSnapshot(
         location="San Valentino in Abruzzo Citeriore",
@@ -193,8 +214,12 @@ def test_weather_without_optional_rows_or_forecast_has_no_empty_labels() -> None
         (0, False, "moon"),
         (2, True, "partly_cloudy"),
         (3, True, "cloudy"),
+        (2, False, "partly_cloudy_night"),
+        (3, False, "cloudy_night"),
         (61, True, "rain"),
+        (61, False, "rain_night"),
         (95, True, "thunderstorm"),
+        (95, False, "storm_night"),
         (73, True, "snow"),
         (45, True, "fog"),
     ],
@@ -210,6 +235,71 @@ def test_weather_icon_mapping_and_one_bit_scaling(
     assert scaled.size == (88, 88)
     assert scaled.mode == "1"
     assert scaled.getextrema() == (0, 255)
+
+
+def test_2216_local_time_never_draws_sun_for_current_conditions(monkeypatch) -> None:
+    snapshot = WeatherSnapshot(
+        location="Roma",
+        observed_at="2026-10-01T22:16:00+02:00",
+        weather_code=0,
+        description="Sereno",
+        temperature=18,
+        humidity=50,
+        wind_speed=5,
+        pressure=1015,
+        forecast=(),
+        is_day=True,
+    )
+
+    def unexpected_sun(*args) -> None:
+        pytest.fail("Nighttime current conditions must not draw a sun")
+
+    monkeypatch.setattr(WeatherRenderer, "_draw_sun", staticmethod(unexpected_sun))
+    image = WeatherRenderer().render(
+        snapshot, WeatherDisplayOptions(show_forecast=False)
+    )
+
+    assert WeatherRenderer._is_daylight(snapshot) is False
+    assert image.size == (400, 300)
+    assert image.mode == "1"
+
+
+def test_local_noon_is_daylight_even_if_day_flag_disagrees() -> None:
+    snapshot = WeatherSnapshot(
+        location="Roma",
+        observed_at="2026-10-01T12:00:00+02:00",
+        weather_code=0,
+        description="Sereno",
+        temperature=18,
+        humidity=50,
+        wind_speed=5,
+        pressure=1015,
+        forecast=(),
+        is_day=False,
+    )
+
+    assert WeatherRenderer._is_daylight(snapshot) is True
+
+
+def test_sunrise_and_sunset_override_local_hour_fallback() -> None:
+    snapshot = WeatherSnapshot(
+        location="Roma",
+        observed_at="2026-10-01T19:00:00+02:00",
+        weather_code=0,
+        description="Sereno",
+        temperature=18,
+        humidity=50,
+        wind_speed=5,
+        pressure=1015,
+        forecast=(),
+        is_day=False,
+    )
+    object.__setattr__(snapshot, "sunrise", "2026-10-01T06:30:00+02:00")
+    object.__setattr__(snapshot, "sunset", "2026-10-01T20:30:00+02:00")
+    assert WeatherRenderer._is_daylight(snapshot) is True
+
+    object.__setattr__(snapshot, "observed_at", "2026-10-01T21:00:00+02:00")
+    assert WeatherRenderer._is_daylight(snapshot) is False
 
 
 def test_open_meteo_parser_maps_current_and_three_forecast_days() -> None:

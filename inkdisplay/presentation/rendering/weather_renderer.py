@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, time
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
@@ -63,18 +63,18 @@ class WeatherRenderer:
         if weather_code == 0:
             return "sun" if is_day else "moon"
         if weather_code in {1, 2}:
-            return "partly_cloudy"
+            return "partly_cloudy" if is_day else "partly_cloudy_night"
         if weather_code == 3:
-            return "cloudy"
+            return "cloudy" if is_day else "cloudy_night"
         if weather_code in {45, 48}:
             return "fog"
         if weather_code in {71, 73, 75, 77, 85, 86}:
             return "snow"
         if weather_code in {95, 96, 99}:
-            return "thunderstorm"
+            return "thunderstorm" if is_day else "storm_night"
         if weather_code in {51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82}:
-            return "rain"
-        return "cloudy"
+            return "rain" if is_day else "rain_night"
+        return "cloudy" if is_day else "cloudy_night"
 
     def render_unavailable(self) -> Image.Image:
         image = Image.new("1", (WIDTH, HEIGHT), color=1)
@@ -125,19 +125,17 @@ class WeatherRenderer:
             0,
         )
 
-        is_day = weather.is_day
-        if is_day is None:
-            is_day = 6 <= observed_at.hour < 18
+        is_day = self._is_daylight(weather, observed_at)
         self._icon(image, weather.weather_code, 22, 69, 94, is_day=is_day)
         self._draw_temperature(
-            draw, weather.temperature, weather.temperature_unit, (132, 64, 388, 128)
+            draw, weather.temperature, weather.temperature_unit, (132, 64, 388, 144)
         )
         self._fit_text(
             draw,
             weather.description,
-            (134, 129, 388, 155),
-            22,
-            12,
+            (134, 145, 388, 164),
+            20,
+            10,
             True,
             0,
         )
@@ -145,7 +143,7 @@ class WeatherRenderer:
             self._fit_text(
                 draw,
                 f"Percepita {weather.feels_like:.0f}{weather.temperature_unit}",
-                (135, 155, 388, 173),
+                (135, 164, 388, 176),
                 15,
                 10,
                 True,
@@ -194,6 +192,50 @@ class WeatherRenderer:
         except ValueError:
             return datetime.now(UTC)
         return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+
+    @classmethod
+    def _is_daylight(
+        cls, weather: WeatherSnapshot, observed_at: datetime | None = None
+    ) -> bool:
+        local_now = observed_at or cls._observed_datetime(weather.observed_at)
+        timezone = local_now.tzinfo or UTC
+        sunrise = cls._solar_time(getattr(weather, "sunrise", None), local_now)
+        sunset = cls._solar_time(getattr(weather, "sunset", None), local_now)
+        if sunrise is not None and sunset is not None:
+            local_time = local_now.timetz().replace(tzinfo=None)
+            if sunrise <= sunset:
+                return sunrise <= local_time < sunset
+            return local_time >= sunrise or local_time < sunset
+
+        if local_now.tzinfo is None:
+            local_now = local_now.replace(tzinfo=timezone)
+        return 6 <= local_now.hour < 18
+
+    @staticmethod
+    def _solar_time(value: object, local_now: datetime) -> time | None:
+        if isinstance(value, datetime):
+            solar_datetime = value
+        elif isinstance(value, time):
+            solar_datetime = datetime.combine(local_now.date(), value)
+        elif isinstance(value, str):
+            try:
+                solar_datetime = datetime.fromisoformat(value)
+            except ValueError:
+                try:
+                    solar_datetime = datetime.combine(
+                        local_now.date(), time.fromisoformat(value)
+                    )
+                except ValueError:
+                    return None
+        else:
+            return None
+
+        timezone = local_now.tzinfo or UTC
+        if solar_datetime.tzinfo is None:
+            solar_datetime = solar_datetime.replace(tzinfo=timezone)
+        else:
+            solar_datetime = solar_datetime.astimezone(timezone)
+        return solar_datetime.timetz().replace(tzinfo=None)
 
     @staticmethod
     def _draw_metrics(
@@ -246,7 +288,7 @@ class WeatherRenderer:
         number = f"{temperature:.0f}"
         has_degree = unit.startswith("°")
         unit_label = unit[-1] if has_degree else unit
-        for size in range(62, 37, -1):
+        for size in range(82, 41, -1):
             number_font = _font(size, True)
             unit_font = _font(max(18, round(size * 0.58)), True)
             number_bounds = draw.textbbox((0, 0), number, font=number_font)
@@ -352,19 +394,25 @@ class WeatherRenderer:
         if name == "sun":
             WeatherRenderer._draw_sun(draw, 48, 47, 19, 0)
         elif name == "moon":
-            draw.ellipse((18, 15, 78, 75), outline=0, width=5)
-            draw.ellipse((39, 5, 91, 57), outline=0, width=3)
+            WeatherRenderer._draw_moon(draw, 17, 8, 66)
         elif name == "partly_cloudy":
             WeatherRenderer._draw_sun(draw, 36, 34, 15, 0)
             WeatherRenderer._draw_cloud(draw, 17, 32)
-        elif name == "cloudy":
+        elif name == "partly_cloudy_night":
+            WeatherRenderer._draw_moon(draw, 47, 4, 43)
+            WeatherRenderer._draw_cloud(draw, 9, 30)
+        elif name in {"cloudy", "cloudy_night"}:
+            if name == "cloudy_night":
+                WeatherRenderer._draw_moon(draw, 55, 3, 34)
             WeatherRenderer._draw_cloud(draw, 8, 19)
         else:
+            if name in {"rain_night", "storm_night"}:
+                WeatherRenderer._draw_moon(draw, 57, 2, 32)
             WeatherRenderer._draw_cloud(draw, 8, 12)
-            if name == "rain":
+            if name in {"rain", "rain_night"}:
                 for x in (31, 49, 67):
                     draw.line((x, 71, x - 7, 87), fill=0, width=5)
-            elif name == "thunderstorm":
+            elif name in {"thunderstorm", "storm_night"}:
                 draw.polygon(
                     ((52, 62), (38, 81), (50, 81), (43, 97), (66, 73), (54, 73)),
                     fill=0,
@@ -376,6 +424,15 @@ class WeatherRenderer:
                 for y in (75, 84, 93):
                     draw.line((15, y, 80, y), fill=0, width=4)
         return image.convert("1", dither=Image.Dither.NONE)
+
+    @staticmethod
+    def _draw_moon(draw: ImageDraw.ImageDraw, x: int, y: int, size: int) -> None:
+        draw.ellipse((x, y, x + size, y + size), fill=0)
+        offset = max(6, size // 3)
+        draw.ellipse(
+            (x + offset, y - offset // 3, x + size + offset, y + size - offset // 3),
+            fill=255,
+        )
 
     @staticmethod
     def _draw_sun(
