@@ -271,6 +271,8 @@ class PluginService:
         if previous_plugin != plugin_key:
             frame.info["refresh_mode"] = "full"
             frame.info["force_full_refresh"] = True
+            frame.info["plugin_change_from"] = previous_plugin or "none"
+            frame.info["plugin_change_to"] = plugin_key
             logger.info(
                 "display_refresh=FULL reason=plugin_changed from=%s to=%s",
                 previous_plugin or "none",

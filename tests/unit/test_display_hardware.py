@@ -73,6 +73,66 @@ def test_waveshare_driver_load_is_injected_and_capabilities_are_detected() -> No
     assert ("full", 15000) in driver.calls
 
 
+@pytest.mark.parametrize(
+    ("previous_plugin", "current_plugin"),
+    (("clock", "weather"), ("weather", "clock")),
+)
+def test_plugin_change_reinitializes_and_uses_waveshare_full_display(
+    tmp_path: Path, previous_plugin: str, current_plugin: str
+) -> None:
+    driver = FakeDriver()
+    adapter = Waveshare4In2V2Display(driver=driver)
+    managed = ManagedDisplay(
+        adapter,
+        mode="waveshare",
+        driver_name=adapter.driver_name,
+        lock_path=tmp_path / "display.lock",
+    )
+    managed.initialize()
+    managed.display(_frame())
+    driver.calls.clear()
+
+    frame = _frame(1)
+    frame.info.update(
+        {
+            "refresh_mode": "partial",
+            "force_full_refresh": True,
+            "plugin_change_from": previous_plugin,
+            "plugin_change_to": current_plugin,
+        }
+    )
+    managed.display(frame)
+
+    assert driver.calls == ["init", "getbuffer", ("full", 15000)]
+    assert managed.last_refresh_mode == "full"
+    assert not any(
+        isinstance(call, tuple) and call[0] in {"partial", "fast"}
+        for call in driver.calls
+    )
+
+
+def test_same_clock_refresh_can_use_partial_without_reinitializing(
+    tmp_path: Path,
+) -> None:
+    driver = FakeDriver()
+    adapter = Waveshare4In2V2Display(driver=driver)
+    managed = ManagedDisplay(
+        adapter,
+        mode="waveshare",
+        driver_name=adapter.driver_name,
+        lock_path=tmp_path / "display.lock",
+    )
+    managed.initialize()
+    driver.calls.clear()
+    frame = _frame(1)
+    frame.info["refresh_mode"] = "partial"
+
+    managed.display(frame)
+
+    assert driver.calls == ["getbuffer", ("partial", 15000)]
+    assert managed.last_refresh_mode == "partial"
+
+
 def test_driver_module_import_uses_official_module_name(monkeypatch) -> None:
     driver = FakeDriver()
     imported = []

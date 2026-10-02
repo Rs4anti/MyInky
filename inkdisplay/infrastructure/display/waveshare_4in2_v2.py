@@ -114,7 +114,15 @@ class Waveshare4In2V2Display:
     def _display_locked(self, image: Image.Image) -> None:
         if image.size != (self.width, self.height):
             raise ValueError("Display image must be exactly 400x300 pixels.")
-        if not self._initialized:
+        plugin_change = bool(image.info.get("force_full_refresh"))
+        if plugin_change:
+            self._initialize_normal()
+            logger.info(
+                "PLUGIN_CHANGE_FULL_REFRESH from=%s to=%s method=EPD.init",
+                image.info.get("plugin_change_from", "unknown"),
+                image.info.get("plugin_change_to", "unknown"),
+            )
+        elif not self._initialized:
             self._initialize_normal()
         frame = image.convert("1", dither=Image.Dither.NONE)
         if isinstance(image.info.get("clock_render"), dict):
@@ -126,7 +134,11 @@ class Waveshare4In2V2Display:
                 frame.height,
                 hashlib.sha256(frame.tobytes()).hexdigest(),
             )
-        requested_mode = str(image.info.get("refresh_mode", "full")).lower()
+        requested_mode = (
+            "full"
+            if plugin_change
+            else str(image.info.get("refresh_mode", "full")).lower()
+        )
         if requested_mode not in {"full", "fast", "partial"}:
             logger.warning("Refresh mode %r sconosciuta; uso full", requested_mode)
             requested_mode = "full"
@@ -159,6 +171,12 @@ class Waveshare4In2V2Display:
                     buffer = self._driver.getbuffer(frame)
                 self._driver.display(buffer)
                 self._active_mode = "full"
+                if plugin_change:
+                    logger.info(
+                        "PLUGIN_CHANGE_FULL_REFRESH from=%s to=%s method=EPD.display",
+                        image.info.get("plugin_change_from", "unknown"),
+                        image.info.get("plugin_change_to", "unknown"),
+                    )
         except DisplayHardwareError:
             raise
         except Exception as error:

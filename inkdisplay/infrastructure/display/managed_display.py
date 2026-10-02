@@ -72,7 +72,18 @@ class ManagedDisplay:
             frame.info.update(image.info)
             if frame.size != (400, 300):
                 raise ValueError("Display image must be exactly 400x300 pixels.")
-            refresh_mode = str(frame.info.get("refresh_mode", "full")).lower()
+            force_full_refresh = bool(frame.info.get("force_full_refresh"))
+            refresh_mode = (
+                "full"
+                if force_full_refresh
+                else str(frame.info.get("refresh_mode", "full")).lower()
+            )
+            if force_full_refresh:
+                logger.info(
+                    "PLUGIN_CHANGE_FULL_REFRESH from=%s to=%s",
+                    frame.info.get("plugin_change_from", "unknown"),
+                    frame.info.get("plugin_change_to", "unknown"),
+                )
             if refresh_mode == "partial" and not self.supports_partial_refresh:
                 logger.warning("Partial refresh non supportato; uso full refresh")
                 refresh_mode = "full"
@@ -90,7 +101,6 @@ class ManagedDisplay:
                 refresh_mode = "full"
             frame.info["refresh_mode"] = refresh_mode
             new_hash = hashlib.sha256(frame.tobytes()).hexdigest()
-            force_full_refresh = bool(frame.info.get("force_full_refresh"))
             self.previous_hash = self.last_hash
             self.new_hash = new_hash
             if new_hash == self.last_hash and not force_full_refresh:
