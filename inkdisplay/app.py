@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from collections.abc import Mapping
 from io import BytesIO
@@ -32,6 +33,8 @@ from inkdisplay.infrastructure.weather.open_weather_map import OpenWeatherMapPro
 from inkdisplay.presentation.rendering.renderer import ClockRenderer
 from inkdisplay.presentation.rendering.weather_renderer import WeatherRenderer
 from inkdisplay.presentation.web.blueprints.settings import settings_blueprint
+
+logger = logging.getLogger(__name__)
 
 
 def create_app(config_override: Mapping[str, Any] | None = None) -> Flask:
@@ -115,6 +118,12 @@ def create_app(config_override: Mapping[str, Any] | None = None) -> Flask:
             preview_path.is_file()
             and display_state["last_display_success_at"] is not None
         ):
+            if display_state["last_displayed_plugin"] == "clock":
+                logger.info(
+                    "CLOCK_RENDER preview_served=%s plugin=clock display_hash=%s",
+                    preview_path,
+                    display_state["last_displayed_hash"],
+                )
             response = send_file(
                 preview_path, mimetype="image/png", max_age=0, conditional=False
             )

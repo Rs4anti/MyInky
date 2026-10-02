@@ -170,7 +170,23 @@ class ClockRenderer:
         x = left + (right - left - target_width) // 2
         y = top + (bottom - top - text_height) // 2
         image.paste(0, (x, y), mask)
-        return getattr(font, "size", None)
+        font_size = getattr(font, "size", None)
+        image.info["clock_render"] = {
+            "renderer": f"{ClockRenderer.__module__}.{ClockRenderer.__qualname__}",
+            "source": __file__,
+            "font_size": font_size,
+            "width": text_width,
+            "height": text_height,
+        }
+        logger.info(
+            "CLOCK_RENDER renderer=%s source=%s font_size=%s width=%s height=%s",
+            image.info["clock_render"]["renderer"],
+            __file__,
+            font_size,
+            text_width,
+            text_height,
+        )
+        return font_size
 
     @staticmethod
     def _fit_font(

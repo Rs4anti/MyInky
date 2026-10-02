@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import importlib
 import logging
 import threading
@@ -116,6 +117,15 @@ class Waveshare4In2V2Display:
         if not self._initialized:
             self._initialize_normal()
         frame = image.convert("1", dither=Image.Dither.NONE)
+        if isinstance(image.info.get("clock_render"), dict):
+            logger.info(
+                "CLOCK_RENDER display_frame=%s source=%s frame=%sx%s hash=%s",
+                self.driver_name,
+                __file__,
+                frame.width,
+                frame.height,
+                hashlib.sha256(frame.tobytes()).hexdigest(),
+            )
         requested_mode = str(image.info.get("refresh_mode", "full")).lower()
         if requested_mode not in {"full", "fast", "partial"}:
             logger.warning("Refresh mode %r sconosciuta; uso full", requested_mode)

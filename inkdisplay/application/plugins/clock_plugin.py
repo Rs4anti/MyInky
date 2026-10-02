@@ -24,6 +24,7 @@ class ClockPlugin:
             self.refresh_content()
         assert self._image is not None
         image = self._image.copy()
+        image.info.update(self._image.info)
         image.info["refresh_mode"] = "partial"
         return image
 

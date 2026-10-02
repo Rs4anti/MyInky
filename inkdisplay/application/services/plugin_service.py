@@ -250,6 +250,27 @@ class PluginService:
         db.session.commit()
 
         try:
+            clock_render = frame.info.get("clock_render")
+            if isinstance(clock_render, dict):
+                display_target = getattr(
+                    self._display,
+                    "driver_name",
+                    type(self._display).__name__,
+                )
+                display_mode = getattr(self._display, "mode", "unknown")
+                logger.info(
+                    "CLOCK_RENDER font_size=%s width=%s height=%s preview=%s "
+                    "display=%s:%s frame=%sx%s hash=%s",
+                    clock_render.get("font_size"),
+                    clock_render.get("width"),
+                    clock_render.get("height"),
+                    self._preview_path,
+                    display_mode,
+                    display_target,
+                    frame.width,
+                    frame.height,
+                    image_hash,
+                )
             self._display.display(frame)
         except Exception as error:
             state = self._state()
@@ -350,6 +371,14 @@ class PluginService:
         if self._preview_path is None:
             return
         self._save_image(self._preview_path, image)
+        if isinstance(image.info.get("clock_render"), dict):
+            logger.info(
+                "CLOCK_RENDER preview_written=%s frame=%sx%s hash=%s",
+                self._preview_path,
+                image.width,
+                image.height,
+                hashlib.sha256(image.tobytes()).hexdigest(),
+            )
 
     def _save_plugin_preview(self, plugin_key: str, image: Image.Image) -> None:
         if self._preview_path is None:
