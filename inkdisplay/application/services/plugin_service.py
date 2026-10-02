@@ -267,6 +267,20 @@ class PluginService:
         now = self._now()
         frame = image.convert("1", dither=Image.Dither.NONE)
         frame.info.update(image.info)
+        previous_plugin = state.last_displayed_plugin
+        if previous_plugin != plugin_key:
+            frame.info["refresh_mode"] = "full"
+            frame.info["force_full_refresh"] = True
+            logger.info(
+                "display_refresh=FULL reason=plugin_changed from=%s to=%s",
+                previous_plugin or "none",
+                plugin_key,
+            )
+        elif (
+            plugin_key == "clock"
+            and str(frame.info.get("refresh_mode", "full")).lower() == "partial"
+        ):
+            logger.info("display_refresh=PARTIAL reason=same_plugin plugin=clock")
         image_hash = hashlib.sha256(frame.tobytes()).hexdigest()
         state.last_display_attempt_at = now
         state.last_display_attempt_plugin = plugin_key

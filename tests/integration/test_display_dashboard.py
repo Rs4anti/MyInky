@@ -11,6 +11,7 @@ from PIL import Image
 from inkdisplay.app import create_app
 from inkdisplay.application.services.photo_service import PhotoService
 from inkdisplay.extensions import db
+from inkdisplay.infrastructure.display.managed_display import ManagedDisplay
 from inkdisplay.infrastructure.persistence.models import DisplayState, PluginSettings
 
 
@@ -206,6 +207,77 @@ def test_clock_plugin_writes_large_clock_preview(
             assert time_ink[3] - time_ink[1] >= 90
     assert "clock-preview.png" in caplog.text
     assert "png_sha256=" in caplog.text
+
+
+def test_plugin_changes_force_full_refresh_but_same_clock_can_be_partial(
+    tmp_path: Path, caplog
+) -> None:
+    transitions = (
+        ("clock", "weather", "full"),
+        ("weather", "clock", "full"),
+        ("weather", "photo", "full"),
+        ("photo", "clock", "full"),
+        ("clock", "clock", "partial"),
+    )
+
+    class RecordingDisplay:
+        supports_partial_refresh = True
+        supports_fast_refresh = True
+
+        def __init__(self) -> None:
+            self.refresh_modes: list[str] = []
+
+        def initialize(self) -> None:
+            return None
+
+        def display(self, image: Image.Image) -> None:
+            self.refresh_modes.append(str(image.info["refresh_mode"]))
+
+        def clear(self) -> None:
+            return None
+
+        def sleep(self) -> None:
+            return None
+
+        def close(self) -> None:
+            return None
+
+    for previous_plugin, current_plugin, expected_mode in transitions:
+        app = _app(tmp_path / f"{previous_plugin}-to-{current_plugin}")
+        with app.app_context():
+            service = app.extensions["inkdisplay.plugin_service"]
+            delegate = RecordingDisplay()
+            service._display = ManagedDisplay(
+                delegate,
+                mode="waveshare",
+                driver_name="RecordingWaveshare",
+                lock_path=(
+                    tmp_path / f"{previous_plugin}-to-{current_plugin}" / "display.lock"
+                ),
+            )
+            state = db.session.get(DisplayState, 1)
+            state.last_displayed_plugin = previous_plugin
+            state.last_plugin_shown = previous_plugin
+            db.session.commit()
+
+            frame = Image.new("1", (400, 300), color=255)
+            frame.info["refresh_mode"] = "partial"
+            with caplog.at_level(
+                logging.INFO,
+                logger="inkdisplay.application.services.plugin_service",
+            ):
+                assert service._apply(current_plugin, frame, rotation=False)
+
+            assert delegate.refresh_modes == [expected_mode]
+            if expected_mode == "full":
+                assert (
+                    f"display_refresh=FULL reason=plugin_changed "
+                    f"from={previous_plugin} to={current_plugin}"
+                ) in caplog.text
+            else:
+                assert (
+                    "display_refresh=PARTIAL reason=same_plugin plugin=clock"
+                ) in caplog.text
 
 
 def test_dashboard_formats_persisted_times_in_configured_timezone(

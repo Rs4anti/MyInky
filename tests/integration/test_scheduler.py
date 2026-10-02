@@ -223,7 +223,7 @@ def test_hardware_failure_does_not_claim_new_plugin_was_displayed(
         assert state.last_display_attempt_plugin == "weather"
 
 
-def test_unchanged_frame_updates_plugin_identity_without_extra_hardware_write(
+def test_plugin_change_forces_full_even_when_frame_is_unchanged(
     tmp_path: Path,
 ) -> None:
     app = create_app({"TESTING": True, "DATA_DIR": tmp_path, "SECRET_KEY": "test"})
@@ -253,8 +253,9 @@ def test_unchanged_frame_updates_plugin_identity_without_extra_hardware_write(
         assert state.current_plugin == "weather"
         assert state.last_displayed_plugin == "weather"
         assert state.last_displayed_hash == frame_hash
-        assert state.last_display_result == "skipped-unchanged"
-        assert state.last_display_success_at == successful_at
+        assert state.last_display_result == "updated"
+        assert state.last_display_success_at != successful_at
+        assert display.last_refresh_mode == "full"
 
 
 def test_scheduler_keeps_refresh_and_rotation_intervals_separate(

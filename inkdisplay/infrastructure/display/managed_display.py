@@ -90,9 +90,10 @@ class ManagedDisplay:
                 refresh_mode = "full"
             frame.info["refresh_mode"] = refresh_mode
             new_hash = hashlib.sha256(frame.tobytes()).hexdigest()
+            force_full_refresh = bool(frame.info.get("force_full_refresh"))
             self.previous_hash = self.last_hash
             self.new_hash = new_hash
-            if new_hash == self.last_hash:
+            if new_hash == self.last_hash and not force_full_refresh:
                 self.last_result = "skipped-unchanged"
                 self.last_refresh_mode = "skipped"
                 logger.info(
