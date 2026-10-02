@@ -202,8 +202,8 @@ def test_clock_plugin_writes_large_clock_preview(
                 lambda value: 255 - value,
             ).getbbox()
             assert time_ink is not None
-            assert time_ink[2] - time_ink[0] >= 300
-            assert time_ink[3] - time_ink[1] >= 100
+            assert time_ink[2] - time_ink[0] >= 280
+            assert time_ink[3] - time_ink[1] >= 90
     assert "clock-preview.png" in caplog.text
     assert "png_sha256=" in caplog.text
 

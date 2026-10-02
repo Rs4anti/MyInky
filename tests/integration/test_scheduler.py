@@ -1,3 +1,4 @@
+import logging
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -270,6 +271,7 @@ def test_scheduler_keeps_refresh_and_rotation_intervals_separate(
 
     assert scheduler.start() is True
     try:
+        assert (tmp_path / "previews" / "clock-preview.png").is_file()
         jobs = scheduler._scheduler.get_jobs()
         intervals = {job.id: job.trigger.interval.total_seconds() for job in jobs}
         assert intervals["plugin-refresh-clock"] == 60
@@ -309,5 +311,88 @@ def test_scheduler_keeps_refresh_and_rotation_intervals_separate(
             tmp_path / "scheduler.lock",
         )
         assert duplicate.start() is False
+    finally:
+        scheduler.shutdown()
+
+
+def test_scheduler_starts_and_uses_alternate_when_clock_render_fails(
+    tmp_path: Path, monkeypatch, caplog
+) -> None:
+    app = create_app({"TESTING": True, "DATA_DIR": tmp_path, "SECRET_KEY": "test"})
+    with app.app_context():
+        db.session.get(PluginSettings, "weather").enabled = True
+        state = db.session.get(DisplayState, 1)
+        state.current_plugin = "clock"
+        state.current_plugin_started_at = datetime.now(UTC)
+        state.current_plugin_expires_at = datetime.now(UTC) + timedelta(minutes=10)
+        db.session.commit()
+
+        service = app.extensions["inkdisplay.plugin_service"]
+        clock_plugin = service._plugins["clock"]
+
+        def fail_render(**kwargs):
+            raise RuntimeError("simulated ClockRenderer failure")
+
+        monkeypatch.setattr(clock_plugin._renderer, "render_clock", fail_render)
+
+        class AlternatePlugin:
+            def refresh_content(self) -> None:
+                return None
+
+            def render(self) -> Image.Image:
+                image = Image.new("1", (400, 300), color=255)
+                image.putpixel((10, 10), 0)
+                return image
+
+        service._plugins["weather"] = AlternatePlugin()
+        scheduler = app.extensions["inkdisplay.scheduler"]
+
+    with caplog.at_level(logging.ERROR):
+        assert scheduler.start() is True
+    try:
+        assert scheduler.running
+        assert "Plugin rendering failed plugin=clock" in caplog.text
+        assert "simulated ClockRenderer failure" in caplog.text
+        with app.app_context():
+            state = db.session.get(DisplayState, 1)
+            assert state.last_displayed_plugin == "weather"
+            assert state.last_display_result in {"updated", "skipped-unchanged"}
+    finally:
+        scheduler.shutdown()
+
+
+def test_scheduler_start_preserves_last_frame_when_clock_is_only_plugin(
+    tmp_path: Path, monkeypatch, caplog
+) -> None:
+    app = create_app({"TESTING": True, "DATA_DIR": tmp_path, "SECRET_KEY": "test"})
+    with app.app_context():
+        service = app.extensions["inkdisplay.plugin_service"]
+        assert service.redraw_current() == "clock"
+        display = app.extensions["inkdisplay.display"]
+        previous_hash = display.last_hash
+        current_path = tmp_path / "previews" / "current.png"
+        previous_png = current_path.read_bytes()
+        clock_plugin = service._plugins["clock"]
+        clock_plugin._image = None
+
+        def fail_render(**kwargs):
+            raise RuntimeError("simulated ClockRenderer failure")
+
+        monkeypatch.setattr(clock_plugin._renderer, "render_clock", fail_render)
+        scheduler = app.extensions["inkdisplay.scheduler"]
+
+    with caplog.at_level(logging.ERROR):
+        assert scheduler.start() is True
+    try:
+        assert scheduler.running
+        assert "simulated ClockRenderer failure" in caplog.text
+        with app.app_context():
+            state = db.session.get(DisplayState, 1)
+            assert state.last_display_result == "error"
+            assert "rendering failed" in state.last_display_error
+            assert state.last_displayed_hash == previous_hash
+            assert state.last_displayed_plugin == "clock"
+        assert display.last_hash == previous_hash
+        assert current_path.read_bytes() == previous_png
     finally:
         scheduler.shutdown()

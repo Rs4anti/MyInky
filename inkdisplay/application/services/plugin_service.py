@@ -46,7 +46,11 @@ class PluginService:
         plugin = self._plugins.get(plugin_key)
         if plugin is None:
             raise ValueError(f"Unknown visual plugin: {plugin_key}")
-        plugin.refresh_content()
+        try:
+            plugin.refresh_content()
+        except Exception:
+            self._record_plugin_render_error(plugin_key)
+            return
         now = self._now()
         state = self._state()
         refreshes = dict(state.last_content_refresh_at)
@@ -59,8 +63,11 @@ class PluginService:
         if plugin_key == "photo" and plugin_key != current_plugin:
             logger.info("display_skip plugin=%s reason=not-current", plugin_key)
             return
-        image = plugin.render()
-        self._save_plugin_preview(plugin_key, image)
+        image = self._render_plugin_for_display(plugin_key)
+        if image is None:
+            return
+        if plugin_key != "clock":
+            self._save_plugin_preview(plugin_key, image)
         if plugin_key == current_plugin:
             self._apply(plugin_key, image, rotation=False)
             logger.info("display_redraw plugin=%s", plugin_key)
@@ -71,7 +78,10 @@ class PluginService:
         plugin = self._plugins.get(plugin_key)
         if plugin is None:
             raise ValueError(f"Unknown visual plugin: {plugin_key}")
-        return plugin.render()
+        image = plugin.render()
+        if plugin_key == "clock":
+            self._save_plugin_preview(plugin_key, image)
+        return image
 
     def rotate_next(self) -> str | None:
         return self._rotate_next(manual=False)
@@ -96,7 +106,9 @@ class PluginService:
                 + timedelta(minutes=self._rotation_interval())
             )
             db.session.commit()
-        image = self.render_plugin(current)
+        image = self._render_plugin_for_display(current)
+        if image is None:
+            return None
         if self._apply(
             current, image, rotation=state.current_plugin_started_at is None
         ):
@@ -112,10 +124,6 @@ class PluginService:
         current = self._current_plugin(state)
         if current not in candidates:
             current = candidates[0]
-            image = self.render_plugin(current)
-            if self._apply(current, image, rotation=True):
-                return current
-            return None
 
         started_at = self._utc(
             state.current_plugin_started_at
@@ -130,11 +138,20 @@ class PluginService:
             )
             db.session.commit()
         expires_at = self._utc(state.current_plugin_expires_at)
-        if expires_at is not None and expires_at <= self._now():
-            return self.rotate_next()
-        image = self.render_plugin(current)
-        if self._apply(current, image, rotation=started_at is None):
-            return current
+        expired = expires_at is not None and expires_at <= self._now()
+        start_index = candidates.index(current) if current in candidates else 0
+        if expired:
+            start_index = (start_index + 1) % len(candidates)
+        ordered_candidates = candidates[start_index:] + candidates[:start_index]
+
+        for plugin_key in ordered_candidates:
+            image = self._render_plugin_for_display(plugin_key)
+            if image is None:
+                continue
+            rotation = plugin_key != current or started_at is None or expired
+            if not self._apply(plugin_key, image, rotation=rotation):
+                return None
+            return plugin_key
         return None
 
     def status(self) -> dict[str, Any]:
@@ -176,7 +193,8 @@ class PluginService:
         if plugin_key == "photo":
             return PhotoRenderer.render_unavailable()
         image = self.render_plugin(plugin_key)
-        self._save_plugin_preview(plugin_key, image)
+        if plugin_key != "clock":
+            self._save_plugin_preview(plugin_key, image)
         return image
 
     def clear_display(self) -> None:
@@ -223,14 +241,20 @@ class PluginService:
             plugin_key = self._next_plugin(previous, candidates)
             if plugin_key is None:
                 return None
-            image = self.render_plugin(plugin_key)
-            if not self._apply(plugin_key, image, rotation=True):
-                return None
-            if manual:
-                logger.info("Manual next plugin selected: %s", plugin_key)
-            else:
-                logger.info("rotation from=%s to=%s", previous, plugin_key)
-            return plugin_key
+            start_index = candidates.index(plugin_key)
+            ordered_candidates = candidates[start_index:] + candidates[:start_index]
+            for candidate in ordered_candidates:
+                image = self._render_plugin_for_display(candidate)
+                if image is None:
+                    continue
+                if not self._apply(candidate, image, rotation=True):
+                    return None
+                if manual:
+                    logger.info("Manual next plugin selected: %s", candidate)
+                else:
+                    logger.info("rotation from=%s to=%s", previous, candidate)
+                return candidate
+            return None
         except Exception:
             db.session.rollback()
             logger.exception("Display plugin rotation failed")
@@ -353,6 +377,26 @@ class PluginService:
             db.session.flush()
         return state
 
+    def _render_plugin_for_display(self, plugin_key: str) -> Image.Image | None:
+        try:
+            return self.render_plugin(plugin_key)
+        except Exception:
+            self._record_plugin_render_error(plugin_key)
+            return None
+
+    def _record_plugin_render_error(self, plugin_key: str) -> None:
+        logger.exception(
+            "Plugin rendering failed plugin=%s; preserving last frame", plugin_key
+        )
+        db.session.rollback()
+        state = self._state()
+        state.last_display_attempt_at = self._now()
+        state.last_display_attempt_plugin = plugin_key
+        state.last_display_result = "error"
+        state.last_display_error = "Plugin rendering failed; see application log"
+        state.display_mode = getattr(self._display, "mode", "unknown")
+        db.session.commit()
+
     def _now(self) -> datetime:
         now = self._clock()
         return now.replace(tzinfo=UTC) if now.tzinfo is None else now.astimezone(UTC)
@@ -393,9 +437,7 @@ class PluginService:
             return
         path = self._preview_path.with_name(f"{plugin_key}-preview.png")
         self._save_image(path, image)
-        if plugin_key == "clock" and isinstance(
-            image.info.get("clock_render"), dict
-        ):
+        if plugin_key == "clock" and isinstance(image.info.get("clock_render"), dict):
             preview_path = path.resolve()
             logger.debug(
                 "CLOCK_RENDER preview=%s generated_at=%s frame_sha256=%s "

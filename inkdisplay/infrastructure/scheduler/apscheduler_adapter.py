@@ -63,7 +63,13 @@ class APSchedulerAdapter:
 
     def reconfigure(self) -> None:
         with self._app.app_context():
-            self._plugin_service.ensure_current()
+            try:
+                self._plugin_service.ensure_current()
+            except Exception:
+                logger.exception(
+                    "Could not render current plugin during scheduler startup; "
+                    "continuing scheduler configuration"
+                )
             plugin_settings = (
                 db.session.query(PluginSettings).filter_by(enabled=True).all()
             )
