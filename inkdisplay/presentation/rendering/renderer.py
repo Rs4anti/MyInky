@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -33,13 +34,22 @@ MONTHS_IT = (
     "novembre",
     "dicembre",
 )
+logger = logging.getLogger(__name__)
 
 
 def _load_font(
-    size: int, bold: bool = False
+    size: int, bold: bool = False, *, condensed: bool = False
 ) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
     font_names = (
-        ("DejaVuSans-Bold.ttf", "Arial Bold.ttf", "arialbd.ttf")
+        (
+            "impact.ttf",
+            "DejaVuSansCondensed-Bold.ttf",
+            "DejaVuSans-Bold.ttf",
+            "Arial Bold.ttf",
+            "arialbd.ttf",
+        )
+        if bold and condensed
+        else ("DejaVuSans-Bold.ttf", "Arial Bold.ttf", "arialbd.ttf")
         if bold
         else ("DejaVuSans.ttf", "Arial.ttf", "arial.ttf")
     )
@@ -88,7 +98,7 @@ class ClockRenderer:
         if show_seconds:
             time_text += current.strftime(":%S")
 
-        self._draw_time(image, draw, time_text, (12, 10, 388, 198), 180, 8, bold=True)
+        self._draw_time(image, draw, time_text, (30, 10, 370, 198), 180, 8, bold=True)
         self._draw_centered_fitted(
             draw, date_text, (12, 203, 388, 247), 32, 10, bold=True
         )
@@ -115,7 +125,7 @@ class ClockRenderer:
         font: ImageFont.FreeTypeFont | ImageFont.ImageFont | None = None
         text_bounds = (0, 0, 0, 0)
         for size in range(maximum_size, minimum_size - 1, -1):
-            candidate = _load_font(size, bold=bold)
+            candidate = _load_font(size, bold=bold, condensed=True)
             measured_bounds = draw.textbbox((0, 0), text, font=candidate)
             candidate_bounds = (
                 int(measured_bounds[0]),
@@ -123,7 +133,9 @@ class ClockRenderer:
                 int(measured_bounds[2]),
                 int(measured_bounds[3]),
             )
-            if candidate_bounds[3] - candidate_bounds[1] <= bottom - top:
+            candidate_width = candidate_bounds[2] - candidate_bounds[0]
+            candidate_height = candidate_bounds[3] - candidate_bounds[1]
+            if candidate_width <= right - left and candidate_height <= bottom - top:
                 font = candidate
                 text_bounds = candidate_bounds
                 break
@@ -132,12 +144,28 @@ class ClockRenderer:
 
         text_width = text_bounds[2] - text_bounds[0]
         text_height = text_bounds[3] - text_bounds[1]
-        target_width = min(text_width, right - left)
+        target_width = text_width
         mask = Image.new("L", (text_width, text_height), color=0)
         mask_draw = ImageDraw.Draw(mask)
         mask_draw.text((-text_bounds[0], -text_bounds[1]), text, font=font, fill=255)
-        if target_width != text_width:
-            mask = mask.resize((target_width, text_height), Image.Resampling.LANCZOS)
+        logger.debug(
+            "Clock time metrics: text=%r font_size=%s text_width=%s "
+            "text_height=%s target_width=%s final_mask=%s",
+            text,
+            getattr(font, "size", None),
+            text_width,
+            text_height,
+            target_width,
+            mask.size,
+            extra={
+                "clock_text": text,
+                "clock_font_size": getattr(font, "size", None),
+                "clock_text_width": text_width,
+                "clock_text_height": text_height,
+                "clock_target_width": target_width,
+                "clock_final_mask_size": mask.size,
+            },
+        )
         mask = mask.convert("1", dither=Image.Dither.NONE)
         x = left + (right - left - target_width) // 2
         y = top + (bottom - top - text_height) // 2
