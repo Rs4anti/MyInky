@@ -178,7 +178,31 @@ Il plugin scrive automaticamente `data/previews/photo-preview.png`; `data/previe
 
 ## Preview
 
-Avvia l'app e apri `http://localhost:5000/` oppure `http://localhost:5000/api/preview`. La preview corrisponde all'ultimo frame applicato con successo, usa header `no-store` e non comanda il pannello. La dashboard aggiunge un token versione basato su hash/timestamp. Prima del primo successo viene renderizzato il plugin pianificato senza inviarlo all'hardware. Non sono necessari font scaricati né rete; il renderer prova DejaVu o Arial e usa il fallback Pillow.
+Avvia l'app e apri `http://localhost:5000/` oppure `http://localhost:5000/api/preview`. La preview corrisponde all'ultimo frame applicato con successo, usa header `no-store` e non comanda il pannello. La dashboard aggiunge un token versione basato su hash/timestamp. Prima del primo successo viene renderizzato il plugin pianificato senza inviarlo all'hardware. `clock-preview.png` è la preview aggiornata atomicamente a ogni render del clock; `current.png` cambia solo dopo un'applicazione display riuscita.
+
+### Font Clock Raspberry Pi
+
+Il clock richiede un font TrueType di sistema: il font bitmap predefinito di Pillow non viene usato per l'ora. Il renderer preferisce DejaVu Sans Condensed Bold e registra in DEBUG il percorso assoluto del TTF caricato, il bbox e i pixel neri finali. Controlla i font disponibili sul Raspberry Pi:
+
+```bash
+fc-match "DejaVu Sans Condensed:style=Bold"
+find /usr/share/fonts -iname "DejaVuSans*Bold.ttf"
+```
+
+Se non è installato un font TrueType adatto:
+
+```bash
+sudo apt update
+sudo apt install -y fonts-dejavu-core
+```
+
+Se DejaVu è presente ma non raggiunge le soglie di pixel finali, installa anche il font condensato alternativo cercato dal renderer:
+
+```bash
+sudo apt install -y fonts-liberation
+```
+
+I font sono risorse di sistema e non vanno installati nel virtual environment Python.
 
 ## Dashboard e display
 

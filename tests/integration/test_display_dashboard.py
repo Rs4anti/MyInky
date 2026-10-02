@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime, timedelta
 from io import BytesIO
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from PIL import Image
 
@@ -159,6 +161,51 @@ def test_dashboard_preview_serves_last_successful_frame_without_cache(
         b"weather-preview" in dashboard.data or b"Contenuto: weather" in dashboard.data
     )
     assert b"v=" in dashboard.data
+
+
+def test_clock_plugin_writes_large_clock_preview(
+    tmp_path: Path, monkeypatch, caplog
+) -> None:
+    app = _app(tmp_path)
+    fixed_time = datetime(2026, 10, 2, 18, 54, tzinfo=ZoneInfo("Europe/Rome"))
+
+    with app.app_context():
+        state = db.session.get(DisplayState, 1)
+        state.current_plugin = "clock"
+        db.session.get(PluginSettings, "clock").enabled = True
+        db.session.commit()
+
+        service = app.extensions["inkdisplay.plugin_service"]
+        clock_plugin = service._plugins["clock"]
+        renderer = clock_plugin._renderer
+        render_clock = renderer.render_clock
+        monkeypatch.setattr(
+            renderer,
+            "render_clock",
+            lambda **kwargs: render_clock(fixed_time, **kwargs),
+        )
+        with caplog.at_level(
+            logging.DEBUG, logger="inkdisplay.application.services.plugin_service"
+        ):
+            service.refresh_plugin("clock")
+
+    clock_preview_path = tmp_path / "previews" / "clock-preview.png"
+    current_preview_path = tmp_path / "previews" / "current.png"
+    assert clock_preview_path.is_file()
+    assert current_preview_path.is_file()
+    for preview_path in (clock_preview_path, current_preview_path):
+        with Image.open(preview_path) as image:
+            assert image.size == (400, 300)
+            assert image.mode == "1"
+            time_ink = Image.eval(
+                image.crop((12, 10, 388, 190)).convert("L"),
+                lambda value: 255 - value,
+            ).getbbox()
+            assert time_ink is not None
+            assert time_ink[2] - time_ink[0] >= 300
+            assert time_ink[3] - time_ink[1] >= 100
+    assert "clock-preview.png" in caplog.text
+    assert "png_sha256=" in caplog.text
 
 
 def test_dashboard_formats_persisted_times_in_configured_timezone(

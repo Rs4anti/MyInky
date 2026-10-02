@@ -249,6 +249,9 @@ class PluginService:
         state.display_mode = getattr(self._display, "mode", "unknown")
         db.session.commit()
 
+        if plugin_key == "clock":
+            self._save_plugin_preview(plugin_key, frame)
+
         try:
             clock_render = frame.info.get("clock_render")
             if isinstance(clock_render, dict):
@@ -372,12 +375,17 @@ class PluginService:
             return
         self._save_image(self._preview_path, image)
         if isinstance(image.info.get("clock_render"), dict):
+            preview_path = self._preview_path.resolve()
+            generated_at = datetime.now(UTC).isoformat()
             logger.info(
-                "CLOCK_RENDER preview_written=%s frame=%sx%s hash=%s",
-                self._preview_path,
+                "CLOCK_RENDER current_preview=%s generated_at=%s frame=%sx%s "
+                "frame_sha256=%s png_sha256=%s",
+                preview_path,
+                generated_at,
                 image.width,
                 image.height,
                 hashlib.sha256(image.tobytes()).hexdigest(),
+                hashlib.sha256(preview_path.read_bytes()).hexdigest(),
             )
 
     def _save_plugin_preview(self, plugin_key: str, image: Image.Image) -> None:
@@ -385,6 +393,18 @@ class PluginService:
             return
         path = self._preview_path.with_name(f"{plugin_key}-preview.png")
         self._save_image(path, image)
+        if plugin_key == "clock" and isinstance(
+            image.info.get("clock_render"), dict
+        ):
+            preview_path = path.resolve()
+            logger.debug(
+                "CLOCK_RENDER preview=%s generated_at=%s frame_sha256=%s "
+                "png_sha256=%s",
+                preview_path,
+                datetime.now(UTC).isoformat(),
+                hashlib.sha256(image.convert("1").tobytes()).hexdigest(),
+                hashlib.sha256(preview_path.read_bytes()).hexdigest(),
+            )
 
     @staticmethod
     def _save_image(path: Path, image: Image.Image) -> None:
